@@ -1,0 +1,44 @@
+[
+  {
+    "id": "column.public.message.isDelivered",
+    "label": "Add column \"isDelivered\" to \"message\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "isDelivered",
+        "table": "message"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"isDelivered\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message",
+          "isDelivered"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"isDelivered\"",
+        "sql": "ALTER TABLE \"public\".\"message\" ADD COLUMN \"isDelivered\" bool DEFAULT false NOT NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"isDelivered\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message",
+          "isDelivered"
+        ]
+      }
+    ]
+  }
+]

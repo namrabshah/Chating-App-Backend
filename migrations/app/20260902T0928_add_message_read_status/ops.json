@@ -1,0 +1,44 @@
+[
+  {
+    "id": "column.public.message.isRead",
+    "label": "Add column \"isRead\" to \"message\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "isRead",
+        "table": "message"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"isRead\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message",
+          "isRead"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"isRead\"",
+        "sql": "ALTER TABLE \"public\".\"message\" ADD COLUMN \"isRead\" bool DEFAULT false NOT NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"isRead\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message",
+          "isRead"
+        ]
+      }
+    ]
+  }
+]
