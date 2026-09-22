@@ -68,6 +68,71 @@ export const sendMessage = async (req, res) => {
         );
 
         console.log(`[BACKEND] NEW MESSAGE EMITTED`, messagePayload);
+        console.log("[BACKEND] CONVERSATION UPDATED", {
+            conversationId,
+            lastMessageId: message.id,
+        });
+
+        // Broadcast to user rooms for sidebar updates
+        const members = await db.orm.public.ConversationMember.where({
+            conversationId,
+        }).all();
+
+        const allMessagesForCalc = await db.orm.public.Message.all();
+        const convMessages = allMessagesForCalc.filter(
+            (m) => m.conversationId === conversationId
+        );
+
+        for (const memberItem of members) {
+            const memberUnreadCount = convMessages.filter(
+                (m) => m.senderId !== memberItem.userId && !m.isRead
+            ).length;
+
+            console.log("[BACKEND] UNREAD COUNT", memberUnreadCount);
+            console.log("[BACKEND] UNREAD COUNT CALCULATED", {
+                conversationId,
+                userId: memberItem.userId,
+                unreadCount: memberUnreadCount,
+            });
+
+            console.log("[BACKEND] UNREAD COUNT UPDATED", {
+                conversationId,
+                userId: memberItem.userId,
+                unreadCount: memberUnreadCount,
+            });
+
+            // Emit to user room so sidebar updates in realtime even if viewing another conversation
+            io.to(`user_${memberItem.userId}`).emit(
+                "new_message",
+                messagePayload
+            );
+
+            const conversationUpdatePayload = {
+                conversationId,
+                lastMessage: {
+                    id: message.id,
+                    conversationId: message.conversationId,
+                    senderId: message.senderId,
+                    content: message.content,
+                    createdAt: message.createdAt,
+                    isDelivered: message.isDelivered,
+                    isRead: message.isRead,
+                },
+                unreadCount: memberUnreadCount,
+                updatedAt: message.createdAt,
+            };
+
+            io.to(`user_${memberItem.userId}`).emit(
+                "conversation_updated",
+                conversationUpdatePayload
+            );
+
+            io.to(`user_${memberItem.userId}`).emit("unread_count_updated", {
+                conversationId,
+                userId: memberItem.userId,
+                unreadCount: memberUnreadCount,
+            });
+        }
 
         return res.status(201).json({
             success: true,

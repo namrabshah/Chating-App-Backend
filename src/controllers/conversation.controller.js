@@ -69,6 +69,8 @@ export const getMyConversations = async (req, res) => {
     try {
         const currentUserId = req.user.userId;
 
+        console.log("CONVERSATION LIST USER:", currentUserId);
+
         // Get all conversations where current user is a member
         const memberships =
             await db.orm.public.ConversationMember
@@ -76,6 +78,10 @@ export const getMyConversations = async (req, res) => {
                     userId: currentUserId,
                 })
                 .all();
+
+        const allMessages = await db.orm.public.Message.all();
+        const allMembers = await db.orm.public.ConversationMember.all();
+        const allUsers = await db.orm.public.User.all();
 
         const conversations = [];
 
@@ -89,18 +95,94 @@ export const getMyConversations = async (req, res) => {
                 continue;
             }
 
+            // Find other member
+            const convMembers = allMembers.filter(
+                (m) => m.conversationId === conversation.id
+            );
+            const otherMember = convMembers.find(
+                (m) => m.userId !== currentUserId
+            );
+
+            if (!otherMember) {
+                continue;
+            }
+
+            const otherUser = allUsers.find(
+                (u) => u.id === otherMember.userId
+            );
+
+            if (!otherUser) {
+                continue;
+            }
+
+            // Messages for this conversation
+            const convMessages = allMessages.filter(
+                (msg) => msg.conversationId === conversation.id
+            );
+
+            // Calculate unread count (senderId != currentUserId AND isRead = false)
+            const unreadCount = convMessages.filter(
+                (msg) => msg.senderId !== currentUserId && !msg.isRead
+            ).length;
+
+            // Get last message
+            const sortedMessages = convMessages.sort(
+                (a, b) =>
+                    new Date(b.createdAt).getTime() -
+                    new Date(a.createdAt).getTime()
+            );
+
+            const lastMessage =
+                sortedMessages.length > 0
+                    ? {
+                          id: sortedMessages[0].id,
+                          content: sortedMessages[0].content,
+                          senderId: sortedMessages[0].senderId,
+                          createdAt: sortedMessages[0].createdAt,
+                      }
+                    : null;
+
+            const updatedAt = lastMessage
+                ? lastMessage.createdAt
+                : conversation.updatedAt;
+
+            console.log("CONVERSATION:", conversation.id);
+            console.log("UNREAD COUNT:", unreadCount);
+            console.log("LAST MESSAGE:", lastMessage);
+            console.log("[BACKEND] UNREAD COUNT CALCULATED", {
+                conversationId: conversation.id,
+                userId: currentUserId,
+                unreadCount,
+            });
+
             conversations.push({
                 id: conversation.id,
+                otherUser: {
+                    id: otherUser.id,
+                    name: otherUser.name,
+                    email: otherUser.email,
+                    avatar: otherUser.avatar,
+                    isOnline: otherUser.isOnline,
+                    lastSeen: otherUser.lastSeen,
+                },
+                lastMessage,
+                unreadCount,
                 createdAt: conversation.createdAt,
-                updatedAt: conversation.updatedAt,
+                updatedAt,
             });
         }
+
+        // Sort conversations by latest active message / updatedAt descending
+        conversations.sort(
+            (a, b) =>
+                new Date(b.updatedAt).getTime() -
+                new Date(a.updatedAt).getTime()
+        );
 
         return res.status(200).json({
             success: true,
             conversations,
         });
-
     } catch (error) {
         console.error("Get conversations error:", error);
 
@@ -183,6 +265,35 @@ export const getConversationDetails = async (req, res) => {
             });
         }
 
+        const allMessages = await db.orm.public.Message.all();
+        const convMessages = allMessages.filter(
+            (msg) => msg.conversationId === conversationId
+        );
+
+        const unreadCount = convMessages.filter(
+            (msg) => msg.senderId !== currentUserId && !msg.isRead
+        ).length;
+
+        const sortedMessages = convMessages.sort(
+            (a, b) =>
+                new Date(b.createdAt).getTime() -
+                new Date(a.createdAt).getTime()
+        );
+
+        const lastMessage =
+            sortedMessages.length > 0
+                ? {
+                      id: sortedMessages[0].id,
+                      content: sortedMessages[0].content,
+                      senderId: sortedMessages[0].senderId,
+                      createdAt: sortedMessages[0].createdAt,
+                  }
+                : null;
+
+        const updatedAt = lastMessage
+            ? lastMessage.createdAt
+            : conversation.updatedAt;
+
         return res.status(200).json({
             success: true,
             conversation: {
@@ -194,11 +305,13 @@ export const getConversationDetails = async (req, res) => {
                     email: otherUser.email,
                     avatar: otherUser.avatar,
                     isOnline: otherUser.isOnline,
-                    lastseen:otherUser.lastseen,
+                    lastSeen: otherUser.lastSeen,
                 },
 
+                lastMessage,
+                unreadCount,
                 createdAt: conversation.createdAt,
-                updatedAt: conversation.updatedAt,
+                updatedAt,
             },
         });
 

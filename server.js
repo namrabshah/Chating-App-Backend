@@ -230,6 +230,18 @@ io.on("connection", async (socket) => {
                     ? Number(data?.messageId)
                     : Number(data);
 
+            const conversationId =
+                typeof data === "object" && data?.conversationId
+                    ? Number(data.conversationId)
+                    : null;
+
+            console.log("DELIVERY DEBUG - ACK RECEIVED:", {
+                socketId: socket.id,
+                userId: socket.data.userId,
+                messageId,
+                conversationId,
+            });
+
             if (!messageId || Number.isNaN(messageId)) return;
 
             const message = await db.orm.public.Message.first({
@@ -237,6 +249,8 @@ io.on("connection", async (socket) => {
             });
 
             if (!message) return;
+
+            console.log("DELIVERY DEBUG - MESSAGE BEFORE UPDATE:", message);
 
             // Sender cannot acknowledge delivery of own message
             if (message.senderId === userId) return;
@@ -249,21 +263,25 @@ io.on("connection", async (socket) => {
 
             if (!member) return;
 
-            console.log("[BACKEND] MESSAGE DELIVERY ACK RECEIVED", {
-                messageId,
-                userId,
-            });
-
             if (message.isDelivered) return;
 
-            await db.orm.public.Message.where({ id: messageId }).update({
+            const updatedMessage = await db.orm.public.Message.where({
+                id: messageId,
+            }).update({
                 isDelivered: true,
             });
 
-            console.log(
-                "[BACKEND] MESSAGE DELIVERY DATABASE UPDATED",
-                messageId
-            );
+            console.log("DELIVERY DEBUG - DATABASE UPDATED:", {
+                messageId: message.id,
+                isDelivered: true,
+                senderId: message.senderId,
+                recipientId: socket.data.userId,
+            });
+
+            console.log("DELIVERY DEBUG - EMITTING TO SENDER:", {
+                senderId: message.senderId,
+                messageId: message.id,
+            });
 
             const deliveryPayload = {
                 messageId: message.id,
@@ -276,11 +294,6 @@ io.on("connection", async (socket) => {
             io.to(`user_${message.senderId}`)
                 .to(`conversation_${message.conversationId}`)
                 .emit("message_delivery_updated", deliveryPayload);
-
-            console.log(
-                "[BACKEND] DELIVERY UPDATE EMITTED TO SENDER",
-                deliveryPayload
-            );
         } catch (error) {
             console.error("Message delivered error:", error);
         }
@@ -311,6 +324,12 @@ io.on("connection", async (socket) => {
 
             if (!member) return;
 
+            console.log("[BACKEND] MESSAGE READ ACK RECEIVED", {
+                messageId,
+                conversationId,
+                userId,
+            });
+
             const allMessages = await db.orm.public.Message.all();
 
             const unreadMessages = allMessages.filter(
@@ -325,11 +344,6 @@ io.on("connection", async (socket) => {
                 await db.orm.public.Message.where({ id: msg.id }).update({
                     isRead: true,
                     isDelivered: true,
-                });
-
-                console.log("[BACKEND] MESSAGE READ ACK RECEIVED", {
-                    messageId: msg.id,
-                    userId,
                 });
 
                 console.log(
@@ -405,4 +419,4 @@ io.on("connection", async (socket) => {
 
 server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
-});
+});
