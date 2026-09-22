@@ -44,42 +44,34 @@ export const sendMessage = async (req, res) => {
                 conversationId,
                 senderId,
                 content: content.trim(),
+                isDelivered: false,
+                isRead: false,
             });
 
-        console.log(
-            `MESSAGE SENT: ${message.id} by User ${senderId} in Conversation ${conversationId}`
-        );
+        console.log(`[BACKEND] MESSAGE CREATED`, message.id);
 
-        // Send real-time message
+        const messagePayload = {
+            id: message.id,
+            conversationId: message.conversationId,
+            senderId: message.senderId,
+            content: message.content,
+            isDelivered: false,
+            isRead: false,
+            createdAt: message.createdAt,
+            updatedAt: message.updatedAt,
+        };
+
+        // Broadcast real-time new_message to conversation room
         io.to(`conversation_${conversationId}`).emit(
             "new_message",
-            {
-                id: message.id,
-                conversationId: message.conversationId,
-                senderId: message.senderId,
-                content: message.content,
-                isDelivered: message.isDelivered,
-                isRead: message.isRead,
-                createdAt: message.createdAt,
-            }
+            messagePayload
         );
 
-        console.log(
-            `MESSAGE RECEIVED EVENT EMITTED: ${message.id} to conversation_${conversationId}`
-        );
+        console.log(`[BACKEND] NEW MESSAGE EMITTED`, messagePayload);
 
         return res.status(201).json({
             success: true,
-            message: {
-                id: message.id,
-                conversationId: message.conversationId,
-                senderId: message.senderId,
-                content: message.content,
-                isDelivered: message.isDelivered,
-                isRead: message.isRead,
-                createdAt: message.createdAt,
-                updatedAt: message.updatedAt,
-            },
+            message: messagePayload,
         });
     } catch (error) {
         console.error("Send message error:", error);
@@ -101,7 +93,7 @@ export const getMessages = async (req, res) => {
         const conversationId = Number(req.params.conversationId);
 
         const page = Number(req.query.page) || 1;
-        const limit = Number(req.query.limit) || 10;
+        const limit = Number(req.query.limit) || 50;
         const skip = (page - 1) * limit;
 
         if (!conversationId) {
@@ -135,8 +127,8 @@ export const getMessages = async (req, res) => {
             )
             .sort(
                 (a, b) =>
-                    new Date(a.createdAt) -
-                    new Date(b.createdAt)
+                    new Date(a.createdAt).getTime() -
+                    new Date(b.createdAt).getTime()
             );
 
         const messages = filteredMessages.slice(
@@ -200,7 +192,6 @@ export const deleteMessage = async (req, res) => {
             .where({ id: messageId })
             .delete();
 
-        // Notify conversation users
         io.to(
             `conversation_${message.conversationId}`
         ).emit(
@@ -277,7 +268,6 @@ export const updateMessage = async (req, res) => {
                     content: content.trim(),
                 });
 
-        // Notify conversation users
         io.to(
             `conversation_${updatedMessage.conversationId}`
         ).emit(
@@ -302,7 +292,94 @@ export const updateMessage = async (req, res) => {
 };
 
 // ========================================
-// MARK MESSAGE AS READ
+// MARK CONVERSATION MESSAGES AS READ
+// ========================================
+
+export const markConversationAsRead = async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const conversationId = Number(req.params.conversationId);
+
+        if (!conversationId) {
+            return res.status(400).json({
+                success: false,
+                message: "conversationId is required",
+            });
+        }
+
+        const member =
+            await db.orm.public.ConversationMember.first({
+                conversationId,
+                userId,
+            });
+
+        if (!member) {
+            return res.status(403).json({
+                success: false,
+                message:
+                    "You are not a member of this conversation",
+            });
+        }
+
+        const allMessages =
+            await db.orm.public.Message.all();
+
+        const unreadMessages = allMessages.filter(
+            (msg) =>
+                msg.conversationId === conversationId &&
+                msg.senderId !== userId &&
+                !msg.isRead
+        );
+
+        for (const msg of unreadMessages) {
+            await db.orm.public.Message
+                .where({ id: msg.id })
+                .update({
+                    isRead: true,
+                    isDelivered: true,
+                });
+
+            console.log("[BACKEND] MESSAGE READ ACK RECEIVED", {
+                messageId: msg.id,
+                userId,
+            });
+            console.log("[BACKEND] MESSAGE READ DATABASE UPDATED", msg.id);
+
+            const readPayload = {
+                messageId: msg.id,
+                conversationId: msg.conversationId,
+                senderId: msg.senderId,
+                recipientId: userId,
+                isRead: true,
+            };
+
+            io.to(`user_${msg.senderId}`)
+                .to(`conversation_${msg.conversationId}`)
+                .emit("message_read_updated", readPayload);
+
+            console.log("[BACKEND] READ UPDATE EMITTED TO SENDER", readPayload);
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Conversation marked as read",
+            updatedCount: unreadMessages.length,
+        });
+    } catch (error) {
+        console.error(
+            "Mark conversation read error:",
+            error
+        );
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        });
+    }
+};
+
+// ========================================
+// MARK SINGLE MESSAGE AS READ
 // ========================================
 
 export const markMessageAsRead = async (req, res) => {
@@ -329,7 +406,6 @@ export const markMessageAsRead = async (req, res) => {
             });
         }
 
-        // Sender cannot mark own message as read
         if (message.senderId === userId) {
             return res.status(400).json({
                 success: false,
@@ -352,36 +428,37 @@ export const markMessageAsRead = async (req, res) => {
             });
         }
 
-        const updatedMessage =
-            await db.orm.public.Message
-                .where({ id: messageId })
-                .update({
-                    isRead: true,
-                });
+        await db.orm.public.Message
+            .where({ id: messageId })
+            .update({
+                isRead: true,
+                isDelivered: true,
+            });
 
-        // Real-time read event
-        io.to(
-            `conversation_${message.conversationId}`
-        ).emit(
-            "message_read",
-            {
-                messageId: message.id,
-                conversationId:
-                    message.conversationId,
-                userId,
-            }
-        );
+        console.log("[BACKEND] MESSAGE READ ACK RECEIVED", {
+            messageId: message.id,
+            userId,
+        });
+        console.log("[BACKEND] MESSAGE READ DATABASE UPDATED", message.id);
+
+        const readPayload = {
+            messageId: message.id,
+            conversationId: message.conversationId,
+            senderId: message.senderId,
+            recipientId: userId,
+            isRead: true,
+        };
+
+        io.to(`user_${message.senderId}`)
+            .to(`conversation_${message.conversationId}`)
+            .emit("message_read_updated", readPayload);
+
+        console.log("[BACKEND] READ UPDATE EMITTED TO SENDER", readPayload);
 
         return res.status(200).json({
             success: true,
             message: "Message marked as read",
-            data: {
-                messageId: message.id,
-                conversationId:
-                    message.conversationId,
-                userId,
-                isRead: true,
-            },
+            data: readPayload,
         });
     } catch (error) {
         console.error(
@@ -455,4 +532,4 @@ export const getUnreadMessages = async (req, res) => {
             message: "Internal server error",
         });
     }
-};
+};

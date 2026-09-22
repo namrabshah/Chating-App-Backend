@@ -17,31 +17,78 @@ export const io = new Server(server, {
 });
 
 // ========================================
+// HELPER: PROCESS PENDING DELIVERIES
+// ========================================
+
+async function processPendingDeliveries(userId) {
+    try {
+        const memberships = await db.orm.public.ConversationMember.where({
+            userId,
+        }).all();
+
+        const conversationIds = memberships.map((m) => m.conversationId);
+
+        if (conversationIds.length === 0) return;
+
+        const allMessages = await db.orm.public.Message.all();
+
+        const pendingMessages = allMessages.filter(
+            (msg) =>
+                conversationIds.includes(msg.conversationId) &&
+                msg.senderId !== userId &&
+                !msg.isDelivered
+        );
+
+        for (const msg of pendingMessages) {
+            await db.orm.public.Message.where({ id: msg.id }).update({
+                isDelivered: true,
+            });
+
+            console.log(
+                "[BACKEND] MESSAGE DELIVERY DATABASE UPDATED",
+                msg.id
+            );
+
+            const deliveryPayload = {
+                messageId: msg.id,
+                conversationId: msg.conversationId,
+                senderId: msg.senderId,
+                recipientId: userId,
+                isDelivered: true,
+            };
+
+            io.to(`user_${msg.senderId}`)
+                .to(`conversation_${msg.conversationId}`)
+                .emit("message_delivery_updated", deliveryPayload);
+
+            console.log(
+                "[BACKEND] DELIVERY UPDATE EMITTED TO SENDER",
+                deliveryPayload
+            );
+        }
+    } catch (error) {
+        console.error("Pending deliveries error:", error);
+    }
+}
+
+// ========================================
 // SOCKET JWT AUTHENTICATION
 // ========================================
 
 io.use((socket, next) => {
     try {
-        const token = socket.handshake.auth.token;
+        const token = socket.handshake.auth?.token;
 
         if (!token) {
-            return next(
-                new Error("Authentication token required")
-            );
+            return next(new Error("Authentication token required"));
         }
 
-        const decoded = jwt.verify(
-            token,
-            process.env.JWT_SECRET
-        );
-
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
         socket.data.userId = decoded.userId;
 
         next();
     } catch (error) {
-        next(
-            new Error("Invalid or expired token")
-        );
+        next(new Error("Invalid or expired token"));
     }
 });
 
@@ -50,54 +97,34 @@ io.use((socket, next) => {
 // ========================================
 
 io.on("connection", async (socket) => {
-
     const userId = socket.data.userId;
 
-    console.log(
-        `User ${userId} connected:`,
-        socket.id
-    );
+    console.log(`User ${userId} connected:`, socket.id);
 
-    // ========================================
-    // USER ONLINE
-    // ========================================
+    // Join user-specific room for multi-tab/device socket dispatching
+    socket.join(`user_${userId}`);
 
+    // Track online user sockets
     void (async () => {
         try {
-            const userSockets =
-                onlineUsers.get(userId) || new Set();
-
+            const userSockets = onlineUsers.get(userId) || new Set();
             userSockets.add(socket.id);
-
-            onlineUsers.set(
-                userId,
-                userSockets
-            );
+            onlineUsers.set(userId, userSockets);
 
             if (userSockets.size === 1) {
-
-                await db.orm.public.User
-                    .where({ id: userId })
-                    .update({
-                        isOnline: true,
-                        lastSeen: null,
-                    });
-
-                console.log(
-                    `User ${userId} is online`
-                );
-
-                io.emit("user_online", {
-                    userId,
+                await db.orm.public.User.where({ id: userId }).update({
+                    isOnline: true,
+                    lastSeen: null,
                 });
+
+                console.log(`User ${userId} is online`);
+                io.emit("user_online", { userId });
             }
 
+            // Automatically deliver pending messages when user comes online
+            await processPendingDeliveries(userId);
         } catch (error) {
-
-            console.error(
-                "Online status error:",
-                error
-            );
+            console.error("Online status error:", error);
         }
     })();
 
@@ -105,285 +132,271 @@ io.on("connection", async (socket) => {
     // JOIN CONVERSATION
     // ========================================
 
-    socket.on(
-        "join_conversation",
-        async (conversationId, callback) => {
+    socket.on("join_conversation", async (data, callback) => {
+        const conversationId =
+            typeof data === "object"
+                ? Number(data?.conversationId)
+                : Number(data);
 
-            console.log(
-                "JOIN EVENT RECEIVED:",
-                conversationId
-            );
+        console.log(
+            `JOIN REQUEST: User ${userId}, Conversation ${conversationId}`
+        );
 
-            try {
+        if (!conversationId || Number.isNaN(conversationId)) {
+            if (typeof callback === "function") {
+                callback({ success: false, message: "Invalid conversationId" });
+            }
+            return;
+        }
 
-                const numericConversationId =
-                    Number(conversationId);
+        try {
+            const member = await db.orm.public.ConversationMember.first({
+                conversationId,
+                userId,
+            });
 
+            if (!member) {
                 console.log(
-                    `JOIN REQUEST: User ${userId}, Conversation ${numericConversationId}`
+                    `JOIN FAILED: User ${userId} is not member of ${conversationId}`
                 );
-
-                const member =
-                    await db.orm.public.ConversationMember.first({
-                        conversationId:
-                            numericConversationId,
-                        userId,
-                    });
-
-                if (!member) {
-
-                    console.log(
-                        `JOIN FAILED: User ${userId} is not a member of conversation ${numericConversationId}`
-                    );
-
-                    if (callback) {
-                        callback({
-                            success: false,
-                            message:
-                                "You are not a member of this conversation",
-                        });
-                    }
-
-                    return;
-                }
-
-                const roomName =
-                    `conversation_${numericConversationId}`;
-
-                socket.join(roomName);
-
-                console.log(
-                    `ROOM JOINED: ${roomName} by User ${userId}`
-                );
-
-                if (callback) {
-                    callback({
-                        success: true,
-                        conversationId:
-                            numericConversationId,
-                    });
-                }
-
-            } catch (error) {
-
-                console.error(
-                    "Join conversation error:",
-                    error
-                );
-
-                if (callback) {
+                if (typeof callback === "function") {
                     callback({
                         success: false,
-                        message: "Join failed",
+                        message: "You are not a member of this conversation",
                     });
                 }
+                return;
+            }
+
+            const roomName = `conversation_${conversationId}`;
+            socket.join(roomName);
+
+            console.log(`ROOM JOINED: ${roomName} by User ${userId}`);
+
+            if (typeof callback === "function") {
+                callback({
+                    success: true,
+                    conversationId,
+                });
+            }
+        } catch (error) {
+            console.error("Join conversation error:", error);
+            if (typeof callback === "function") {
+                callback({ success: false, message: "Join failed" });
             }
         }
-    );
+    });
 
     // ========================================
     // TYPING
     // ========================================
 
-    socket.on(
-        "typing",
-        (conversationId) => {
+    socket.on("typing", (conversationId) => {
+        const convId =
+            typeof conversationId === "object"
+                ? Number(conversationId?.conversationId)
+                : Number(conversationId);
 
-            socket
-                .to(
-                    `conversation_${conversationId}`
-                )
-                .emit(
-                    "user_typing",
-                    {
-                        userId,
-                        conversationId,
-                    }
-                );
-
-            console.log(
-                `User ${userId} is typing in conversation ${conversationId}`
-            );
-        }
-    );
+        socket.to(`conversation_${convId}`).emit("user_typing", {
+            userId,
+            conversationId: convId,
+        });
+    });
 
     // ========================================
     // STOP TYPING
     // ========================================
 
-    socket.on(
-        "stop_typing",
-        (conversationId) => {
+    socket.on("stop_typing", (conversationId) => {
+        const convId =
+            typeof conversationId === "object"
+                ? Number(conversationId?.conversationId)
+                : Number(conversationId);
 
-            socket
-                .to(
-                    `conversation_${conversationId}`
-                )
-                .emit(
-                    "user_stop_typing",
-                    {
-                        userId,
-                        conversationId,
-                    }
-                );
+        socket.to(`conversation_${convId}`).emit("user_stop_typing", {
+            userId,
+            conversationId: convId,
+        });
+    });
+
+    // ========================================
+    // MESSAGE DELIVERED ACK
+    // ========================================
+
+    socket.on("message_delivered", async (data) => {
+        try {
+            const messageId =
+                typeof data === "object"
+                    ? Number(data?.messageId)
+                    : Number(data);
+
+            if (!messageId || Number.isNaN(messageId)) return;
+
+            const message = await db.orm.public.Message.first({
+                id: messageId,
+            });
+
+            if (!message) return;
+
+            // Sender cannot acknowledge delivery of own message
+            if (message.senderId === userId) return;
+
+            // Verify recipient belongs to conversation
+            const member = await db.orm.public.ConversationMember.first({
+                conversationId: message.conversationId,
+                userId,
+            });
+
+            if (!member) return;
+
+            console.log("[BACKEND] MESSAGE DELIVERY ACK RECEIVED", {
+                messageId,
+                userId,
+            });
+
+            if (message.isDelivered) return;
+
+            await db.orm.public.Message.where({ id: messageId }).update({
+                isDelivered: true,
+            });
 
             console.log(
-                `User ${userId} stopped typing in conversation ${conversationId}`
+                "[BACKEND] MESSAGE DELIVERY DATABASE UPDATED",
+                messageId
             );
+
+            const deliveryPayload = {
+                messageId: message.id,
+                conversationId: message.conversationId,
+                senderId: message.senderId,
+                recipientId: userId,
+                isDelivered: true,
+            };
+
+            io.to(`user_${message.senderId}`)
+                .to(`conversation_${message.conversationId}`)
+                .emit("message_delivery_updated", deliveryPayload);
+
+            console.log(
+                "[BACKEND] DELIVERY UPDATE EMITTED TO SENDER",
+                deliveryPayload
+            );
+        } catch (error) {
+            console.error("Message delivered error:", error);
         }
-    );
+    });
 
     // ========================================
-    // MESSAGE DELIVERED
+    // MESSAGE READ ACK
     // ========================================
 
-    socket.on(
-        "message_delivered",
-        async (messageId) => {
+    socket.on("message_read", async (data) => {
+        try {
+            const conversationId =
+                typeof data === "object"
+                    ? Number(data?.conversationId)
+                    : Number(data);
 
-            try {
+            const messageId =
+                typeof data === "object" && data?.messageId
+                    ? Number(data.messageId)
+                    : null;
 
-                const numericMessageId =
-                    Number(messageId);
+            if (!conversationId || Number.isNaN(conversationId)) return;
 
-                const message =
-                    await db.orm.public.Message.first({
-                        id: numericMessageId,
-                    });
+            const member = await db.orm.public.ConversationMember.first({
+                conversationId,
+                userId,
+            });
 
-                if (!message) {
-                    return;
-                }
+            if (!member) return;
 
-                if (message.senderId === userId) {
-                    return;
-                }
+            const allMessages = await db.orm.public.Message.all();
 
-                const member =
-                    await db.orm.public.ConversationMember.first({
-                        conversationId:
-                            message.conversationId,
-                        userId,
-                    });
+            const unreadMessages = allMessages.filter(
+                (msg) =>
+                    msg.conversationId === conversationId &&
+                    msg.senderId !== userId &&
+                    !msg.isRead &&
+                    (messageId ? msg.id === messageId : true)
+            );
 
-                if (!member) {
-                    return;
-                }
+            for (const msg of unreadMessages) {
+                await db.orm.public.Message.where({ id: msg.id }).update({
+                    isRead: true,
+                    isDelivered: true,
+                });
 
-                if (message.isDelivered) {
-                    return;
-                }
-
-                const updatedMessage =
-                    await db.orm.public.Message
-                        .where({
-                            id: numericMessageId,
-                        })
-                        .update({
-                            isDelivered: true,
-                        });
+                console.log("[BACKEND] MESSAGE READ ACK RECEIVED", {
+                    messageId: msg.id,
+                    userId,
+                });
 
                 console.log(
-                    `MESSAGE DELIVERED ACK: ${numericMessageId} received by User ${userId}`
+                    "[BACKEND] MESSAGE READ DATABASE UPDATED",
+                    msg.id
                 );
+
+                const readPayload = {
+                    messageId: msg.id,
+                    conversationId: msg.conversationId,
+                    senderId: msg.senderId,
+                    recipientId: userId,
+                    isRead: true,
+                };
+
+                io.to(`user_${msg.senderId}`)
+                    .to(`conversation_${msg.conversationId}`)
+                    .emit("message_read_updated", readPayload);
 
                 console.log(
-                    `Message ${numericMessageId} delivered to User ${userId}`
-                );
-
-                io.to(
-                    `conversation_${message.conversationId}`
-                ).emit(
-                    "message_delivery_updated",
-                    {
-                        messageId:
-                            updatedMessage.id,
-                        conversationId:
-                            updatedMessage.conversationId,
-                        userId,
-                        isDelivered: true,
-                    }
-                );
-
-            } catch (error) {
-
-                console.error(
-                    "Message delivered error:",
-                    error
+                    "[BACKEND] READ UPDATE EMITTED TO SENDER",
+                    readPayload
                 );
             }
+        } catch (error) {
+            console.error("Message read error:", error);
         }
-    );
+    });
 
     // ========================================
     // DISCONNECT
     // ========================================
 
-    socket.on(
-        "disconnect",
-        async () => {
+    socket.on("disconnect", async () => {
+        console.log(`User ${userId} disconnected:`, socket.id);
 
-            console.log(
-                `User ${userId} disconnected:`,
-                socket.id
-            );
+        try {
+            const userSockets = onlineUsers.get(userId);
 
-            try {
+            if (!userSockets) return;
 
-                const userSockets =
-                    onlineUsers.get(userId);
+            userSockets.delete(socket.id);
 
-                if (!userSockets) {
-                    return;
-                }
-
-                userSockets.delete(
-                    socket.id
-                );
-
-                if (userSockets.size > 0) {
-
-                    onlineUsers.set(
-                        userId,
-                        userSockets
-                    );
-
-                    return;
-                }
-
-                onlineUsers.delete(userId);
-
-                const lastSeen =
-                    new Date();
-
-                await db.orm.public.User
-                    .where({ id: userId })
-                    .update({
-                        isOnline: false,
-                        lastSeen,
-                    });
-
-                console.log(
-                    `User ${userId} is offline`
-                );
-
-                io.emit(
-                    "user_offline",
-                    {
-                        userId,
-                        lastSeen,
-                    }
-                );
-
-            } catch (error) {
-
-                console.error(
-                    "Offline status error:",
-                    error
-                );
+            if (userSockets.size > 0) {
+                onlineUsers.set(userId, userSockets);
+                return;
             }
+
+            onlineUsers.delete(userId);
+
+            const lastSeen = new Date();
+
+            await db.orm.public.User.where({ id: userId }).update({
+                isOnline: false,
+                lastSeen,
+            });
+
+            console.log(`User ${userId} is offline`);
+
+            io.emit("user_offline", {
+                userId,
+                lastSeen,
+            });
+        } catch (error) {
+            console.error("Offline status error:", error);
         }
-    );
+    });
 });
 
 // ========================================
@@ -391,8 +404,5 @@ io.on("connection", async (socket) => {
 // ========================================
 
 server.listen(PORT, () => {
-
-    console.log(
-        `Server running on port ${PORT}`
-    );
-});
+    console.log(`Server running on port ${PORT}`);
+});
