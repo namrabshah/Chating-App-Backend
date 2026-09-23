@@ -48,7 +48,12 @@ export const sendMessage = async (req, res) => {
                 isRead: false,
             });
 
-        console.log(`[BACKEND] MESSAGE CREATED`, message.id);
+        console.log("[BACKEND] MESSAGE CREATED:", {
+            id: message.id,
+            conversationId: message.conversationId,
+            senderId: message.senderId,
+            content: message.content,
+        });
 
         const messagePayload = {
             id: message.id,
