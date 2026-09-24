@@ -1,0 +1,213 @@
+[
+  {
+    "id": "column.public.message.attachmentName",
+    "label": "Add column \"attachmentName\" to \"message\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "attachmentName",
+        "table": "message"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"attachmentName\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message",
+          "attachmentName"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"attachmentName\"",
+        "sql": "ALTER TABLE \"public\".\"message\" ADD COLUMN \"attachmentName\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"attachmentName\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message",
+          "attachmentName"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.message.attachmentSize",
+    "label": "Add column \"attachmentSize\" to \"message\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "attachmentSize",
+        "table": "message"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"attachmentSize\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message",
+          "attachmentSize"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"attachmentSize\"",
+        "sql": "ALTER TABLE \"public\".\"message\" ADD COLUMN \"attachmentSize\" int4"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"attachmentSize\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message",
+          "attachmentSize"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.message.attachmentType",
+    "label": "Add column \"attachmentType\" to \"message\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "attachmentType",
+        "table": "message"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"attachmentType\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message",
+          "attachmentType"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"attachmentType\"",
+        "sql": "ALTER TABLE \"public\".\"message\" ADD COLUMN \"attachmentType\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"attachmentType\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message",
+          "attachmentType"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.message.attachmentUrl",
+    "label": "Add column \"attachmentUrl\" to \"message\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "attachmentUrl",
+        "table": "message"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"attachmentUrl\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message",
+          "attachmentUrl"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"attachmentUrl\"",
+        "sql": "ALTER TABLE \"public\".\"message\" ADD COLUMN \"attachmentUrl\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"attachmentUrl\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message",
+          "attachmentUrl"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "alterNullability.dropNotNull.message.content",
+    "label": "Drop NOT NULL on \"message\".\"content\"",
+    "operationClass": "widening",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "content",
+        "table": "message"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"content\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message",
+          "content"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "drop NOT NULL on \"content\"",
+        "sql": "ALTER TABLE \"public\".\"message\" ALTER COLUMN \"content\" DROP NOT NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"content\" is nullable",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3 AND \"is_nullable\" = $4)) AS \"result\"",
+        "params": [
+          "public",
+          "message",
+          "content",
+          "YES"
+        ]
+      }
+    ]
+  }
+]

@@ -1,27 +1,67 @@
 import { db } from "../prisma/db.js";
 import { io } from "../../server.js";
+import { deleteUploadedFile } from "../middleware/upload.middleware.js";
+
+function buildMessagePayload(message) {
+    return {
+        id: message.id,
+        conversationId: message.conversationId,
+        senderId: message.senderId,
+        content: message.content ?? null,
+        isDelivered: Boolean(message.isDelivered),
+        isRead: Boolean(message.isRead),
+        attachmentUrl: message.attachmentUrl ?? null,
+        attachmentName: message.attachmentName ?? null,
+        attachmentType: message.attachmentType ?? null,
+        attachmentSize: message.attachmentSize ?? null,
+        createdAt: message.createdAt,
+        updatedAt: message.updatedAt,
+    };
+}
+
+function buildLastMessagePreview(message) {
+    return {
+        id: message.id,
+        conversationId: message.conversationId,
+        senderId: message.senderId,
+        content: message.content ?? null,
+        attachmentUrl: message.attachmentUrl ?? null,
+        attachmentName: message.attachmentName ?? null,
+        attachmentType: message.attachmentType ?? null,
+        attachmentSize: message.attachmentSize ?? null,
+        createdAt: message.createdAt,
+        isDelivered: Boolean(message.isDelivered),
+        isRead: Boolean(message.isRead),
+    };
+}
 
 // ========================================
 // SEND MESSAGE
 // ========================================
 
 export const sendMessage = async (req, res) => {
+    let uploadedFilename = req.file?.filename || null;
+
     try {
         const senderId = req.user.userId;
         const conversationId = Number(req.params.conversationId);
-        const { content } = req.body;
+        const rawContent =
+            typeof req.body?.content === "string" ? req.body.content : "";
+        const content = rawContent.trim() ? rawContent.trim() : null;
+        const file = req.file || null;
 
-        if (!conversationId) {
+        if (!conversationId || Number.isNaN(conversationId)) {
+            if (uploadedFilename) deleteUploadedFile(uploadedFilename);
             return res.status(400).json({
                 success: false,
                 message: "conversationId is required",
             });
         }
 
-        if (!content || !content.trim()) {
+        if (!content && !file) {
             return res.status(400).json({
                 success: false,
-                message: "Message content is required",
+                message: "Message content or file is required",
             });
         }
 
@@ -32,6 +72,7 @@ export const sendMessage = async (req, res) => {
             });
 
         if (!member) {
+            if (uploadedFilename) deleteUploadedFile(uploadedFilename);
             return res.status(403).json({
                 success: false,
                 message:
@@ -39,32 +80,48 @@ export const sendMessage = async (req, res) => {
             });
         }
 
-        const message =
-            await db.orm.public.Message.create({
-                conversationId,
-                senderId,
-                content: content.trim(),
-                isDelivered: false,
-                isRead: false,
-            });
+        const createData = {
+            conversationId,
+            senderId,
+            content,
+            isDelivered: false,
+            isRead: false,
+            attachmentUrl: null,
+            attachmentName: null,
+            attachmentType: null,
+            attachmentSize: null,
+        };
+
+        if (file) {
+            createData.attachmentUrl = `/uploads/${file.filename}`;
+            createData.attachmentName = file.originalname;
+            createData.attachmentType = file.mimetype;
+            createData.attachmentSize = file.size;
+        }
+
+        let message;
+        try {
+            message = await db.orm.public.Message.create(createData);
+        } catch (dbError) {
+            if (uploadedFilename) deleteUploadedFile(uploadedFilename);
+            throw dbError;
+        }
+
+        // File is linked to DB row — don't delete on later emit failures
+        uploadedFilename = null;
 
         console.log("[BACKEND] MESSAGE CREATED:", {
             id: message.id,
             conversationId: message.conversationId,
             senderId: message.senderId,
             content: message.content,
+            attachmentUrl: message.attachmentUrl,
+            attachmentName: message.attachmentName,
+            attachmentType: message.attachmentType,
+            attachmentSize: message.attachmentSize,
         });
 
-        const messagePayload = {
-            id: message.id,
-            conversationId: message.conversationId,
-            senderId: message.senderId,
-            content: message.content,
-            isDelivered: false,
-            isRead: false,
-            createdAt: message.createdAt,
-            updatedAt: message.updatedAt,
-        };
+        const messagePayload = buildMessagePayload(message);
 
         // Broadcast real-time new_message to conversation room
         io.to(`conversation_${conversationId}`).emit(
@@ -114,15 +171,7 @@ export const sendMessage = async (req, res) => {
 
             const conversationUpdatePayload = {
                 conversationId,
-                lastMessage: {
-                    id: message.id,
-                    conversationId: message.conversationId,
-                    senderId: message.senderId,
-                    content: message.content,
-                    createdAt: message.createdAt,
-                    isDelivered: message.isDelivered,
-                    isRead: message.isRead,
-                },
+                lastMessage: buildLastMessagePreview(message),
                 unreadCount: memberUnreadCount,
                 updatedAt: message.createdAt,
             };
@@ -144,6 +193,7 @@ export const sendMessage = async (req, res) => {
             message: messagePayload,
         });
     } catch (error) {
+        if (uploadedFilename) deleteUploadedFile(uploadedFilename);
         console.error("Send message error:", error);
 
         return res.status(500).json({
@@ -201,10 +251,9 @@ export const getMessages = async (req, res) => {
                     new Date(b.createdAt).getTime()
             );
 
-        const messages = filteredMessages.slice(
-            skip,
-            skip + limit
-        );
+        const messages = filteredMessages
+            .slice(skip, skip + limit)
+            .map(buildMessagePayload);
 
         return res.status(200).json({
             success: true,
@@ -261,6 +310,13 @@ export const deleteMessage = async (req, res) => {
         await db.orm.public.Message
             .where({ id: messageId })
             .delete();
+
+        if (message.attachmentUrl) {
+            const filename = message.attachmentUrl
+                .split("/")
+                .pop();
+            deleteUploadedFile(filename);
+        }
 
         io.to(
             `conversation_${message.conversationId}`
@@ -343,13 +399,13 @@ export const updateMessage = async (req, res) => {
         ).emit(
             "message_updated",
             {
-                message: updatedMessage,
+                message: buildMessagePayload(updatedMessage),
             }
         );
 
         return res.status(200).json({
             success: true,
-            message: updatedMessage,
+            message: buildMessagePayload(updatedMessage),
         });
     } catch (error) {
         console.error("Update message error:", error);
@@ -589,7 +645,7 @@ export const getUnreadMessages = async (req, res) => {
         return res.status(200).json({
             success: true,
             unreadCount: unreadMessages.length,
-            messages: unreadMessages,
+            messages: unreadMessages.map(buildMessagePayload),
         });
     } catch (error) {
         console.error(
@@ -602,4 +658,4 @@ export const getUnreadMessages = async (req, res) => {
             message: "Internal server error",
         });
     }
-};
+};

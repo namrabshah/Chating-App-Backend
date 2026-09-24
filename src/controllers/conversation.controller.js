@@ -136,9 +136,17 @@ export const getMyConversations = async (req, res) => {
                 sortedMessages.length > 0
                     ? {
                           id: sortedMessages[0].id,
-                          content: sortedMessages[0].content,
+                          content: sortedMessages[0].content ?? null,
                           senderId: sortedMessages[0].senderId,
                           createdAt: sortedMessages[0].createdAt,
+                          attachmentUrl:
+                              sortedMessages[0].attachmentUrl ?? null,
+                          attachmentName:
+                              sortedMessages[0].attachmentName ?? null,
+                          attachmentType:
+                              sortedMessages[0].attachmentType ?? null,
+                          attachmentSize:
+                              sortedMessages[0].attachmentSize ?? null,
                       }
                     : null;
 
@@ -284,9 +292,17 @@ export const getConversationDetails = async (req, res) => {
             sortedMessages.length > 0
                 ? {
                       id: sortedMessages[0].id,
-                      content: sortedMessages[0].content,
+                      content: sortedMessages[0].content ?? null,
                       senderId: sortedMessages[0].senderId,
                       createdAt: sortedMessages[0].createdAt,
+                      attachmentUrl:
+                          sortedMessages[0].attachmentUrl ?? null,
+                      attachmentName:
+                          sortedMessages[0].attachmentName ?? null,
+                      attachmentType:
+                          sortedMessages[0].attachmentType ?? null,
+                      attachmentSize:
+                          sortedMessages[0].attachmentSize ?? null,
                   }
                 : null;
 
