@@ -188,6 +188,23 @@ io.on("connection", async (socket) => {
     });
 
     // ========================================
+    // LEAVE CONVERSATION
+    // ========================================
+
+    socket.on("leave_conversation", (data) => {
+        const conversationId =
+            typeof data === "object"
+                ? Number(data?.conversationId)
+                : Number(data);
+
+        if (!conversationId || Number.isNaN(conversationId)) return;
+
+        const roomName = `conversation_${conversationId}`;
+        socket.leave(roomName);
+        console.log(`ROOM LEFT: ${roomName} by User ${userId}`);
+    });
+
+    // ========================================
     // TYPING
     // ========================================
 
@@ -196,6 +213,9 @@ io.on("connection", async (socket) => {
             typeof conversationId === "object"
                 ? Number(conversationId?.conversationId)
                 : Number(conversationId);
+
+        if (!convId || Number.isNaN(convId)) return;
+        if (!socket.rooms.has(`conversation_${convId}`)) return;
 
         socket.to(`conversation_${convId}`).emit("user_typing", {
             userId,
@@ -212,6 +232,9 @@ io.on("connection", async (socket) => {
             typeof conversationId === "object"
                 ? Number(conversationId?.conversationId)
                 : Number(conversationId);
+
+        if (!convId || Number.isNaN(convId)) return;
+        if (!socket.rooms.has(`conversation_${convId}`)) return;
 
         socket.to(`conversation_${convId}`).emit("user_stop_typing", {
             userId,
