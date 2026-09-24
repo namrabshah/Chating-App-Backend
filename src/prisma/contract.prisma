@@ -39,16 +39,17 @@ model ConversationMember {
 }
 
 model Message {
-  id             Int      @id @default(autoincrement())
-  conversationId Int
-  senderId       Int
-  content        String?
-  isRead         Boolean  @default(false)
-  isDelivered    Boolean  @default(false)
-  attachmentUrl  String?
-  attachmentName String?
-  attachmentType String?
-  attachmentSize Int?
-  createdAt      TimestamptzString @default(now())
-  updatedAt      TimestamptzString @default(now())
+  id               Int      @id @default(autoincrement())
+  conversationId   Int
+  senderId         Int
+  content          String?
+  isRead           Boolean  @default(false)
+  isDelivered      Boolean  @default(false)
+  attachmentUrl    String?
+  attachmentName   String?
+  attachmentType   String?
+  attachmentSize   Int?
+  replyToMessageId Int?
+  createdAt        TimestamptzString @default(now())
+  updatedAt        TimestamptzString @default(now())
 }

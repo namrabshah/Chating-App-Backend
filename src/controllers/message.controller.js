@@ -2,7 +2,42 @@ import { db } from "../prisma/db.js";
 import { io } from "../../server.js";
 import { deleteUploadedFile } from "../middleware/upload.middleware.js";
 
-function buildMessagePayload(message) {
+function buildMessagePayload(message, replyToMessageMap = null, usersMap = null) {
+    let replyToMessagePayload = null;
+
+    if (message.replyToMessageId) {
+        if (replyToMessageMap && replyToMessageMap.has(message.replyToMessageId)) {
+            const targetMsg = replyToMessageMap.get(message.replyToMessageId);
+            const senderName = usersMap
+                ? usersMap.get(targetMsg.senderId) || "User"
+                : "User";
+            replyToMessagePayload = {
+                id: targetMsg.id,
+                senderId: targetMsg.senderId,
+                senderName: senderName,
+                content: targetMsg.content ?? null,
+                attachmentUrl: targetMsg.attachmentUrl ?? null,
+                attachmentName: targetMsg.attachmentName ?? null,
+                attachmentType: targetMsg.attachmentType ?? null,
+            };
+        } else if (
+            typeof message.replyToMessage === "object" &&
+            message.replyToMessage !== null
+        ) {
+            replyToMessagePayload = message.replyToMessage;
+        } else {
+            replyToMessagePayload = {
+                id: message.replyToMessageId,
+                senderId: 0,
+                senderName: "User",
+                content: "Message deleted",
+                attachmentUrl: null,
+                attachmentName: null,
+                attachmentType: null,
+            };
+        }
+    }
+
     return {
         id: message.id,
         conversationId: message.conversationId,
@@ -14,6 +49,8 @@ function buildMessagePayload(message) {
         attachmentName: message.attachmentName ?? null,
         attachmentType: message.attachmentType ?? null,
         attachmentSize: message.attachmentSize ?? null,
+        replyToMessageId: message.replyToMessageId ?? null,
+        replyToMessage: replyToMessagePayload,
         createdAt: message.createdAt,
         updatedAt: message.updatedAt,
     };
@@ -50,6 +87,12 @@ export const sendMessage = async (req, res) => {
         const content = rawContent.trim() ? rawContent.trim() : null;
         const file = req.file || null;
 
+        const rawReplyToId = req.body?.replyToMessageId;
+        const replyToMessageId =
+            rawReplyToId != null && String(rawReplyToId).trim() !== ""
+                ? Number(rawReplyToId)
+                : null;
+
         if (!conversationId || Number.isNaN(conversationId)) {
             if (uploadedFilename) deleteUploadedFile(uploadedFilename);
             return res.status(400).json({
@@ -63,6 +106,36 @@ export const sendMessage = async (req, res) => {
                 success: false,
                 message: "Message content or file is required",
             });
+        }
+
+        if (replyToMessageId !== null) {
+            if (Number.isNaN(replyToMessageId) || replyToMessageId <= 0) {
+                if (uploadedFilename) deleteUploadedFile(uploadedFilename);
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid replyToMessageId",
+                });
+            }
+
+            const targetMessage = await db.orm.public.Message.first({
+                id: replyToMessageId,
+            });
+
+            if (!targetMessage) {
+                if (uploadedFilename) deleteUploadedFile(uploadedFilename);
+                return res.status(404).json({
+                    success: false,
+                    message: "Referenced message to reply to was not found",
+                });
+            }
+
+            if (targetMessage.conversationId !== conversationId) {
+                if (uploadedFilename) deleteUploadedFile(uploadedFilename);
+                return res.status(400).json({
+                    success: false,
+                    message: "Cannot reply to a message from another conversation",
+                });
+            }
         }
 
         const member =
@@ -90,6 +163,7 @@ export const sendMessage = async (req, res) => {
             attachmentName: null,
             attachmentType: null,
             attachmentSize: null,
+            replyToMessageId: replyToMessageId || null,
         };
 
         if (file) {
@@ -110,18 +184,42 @@ export const sendMessage = async (req, res) => {
         // File is linked to DB row — don't delete on later emit failures
         uploadedFilename = null;
 
+        let replyToMessagePayload = null;
+        if (message.replyToMessageId) {
+            const targetMsg = await db.orm.public.Message.first({
+                id: message.replyToMessageId,
+            });
+            if (targetMsg) {
+                const targetSender = await db.orm.public.User.first({
+                    id: targetMsg.senderId,
+                });
+                replyToMessagePayload = {
+                    id: targetMsg.id,
+                    senderId: targetMsg.senderId,
+                    senderName: targetSender ? targetSender.name : "User",
+                    content: targetMsg.content ?? null,
+                    attachmentUrl: targetMsg.attachmentUrl ?? null,
+                    attachmentName: targetMsg.attachmentName ?? null,
+                    attachmentType: targetMsg.attachmentType ?? null,
+                };
+            }
+        }
+
+        const messageWithReply = {
+            ...message,
+            replyToMessage: replyToMessagePayload,
+        };
+
         console.log("[BACKEND] MESSAGE CREATED:", {
             id: message.id,
             conversationId: message.conversationId,
             senderId: message.senderId,
             content: message.content,
             attachmentUrl: message.attachmentUrl,
-            attachmentName: message.attachmentName,
-            attachmentType: message.attachmentType,
-            attachmentSize: message.attachmentSize,
+            replyToMessageId: message.replyToMessageId,
         });
 
-        const messagePayload = buildMessagePayload(message);
+        const messagePayload = buildMessagePayload(messageWithReply);
 
         // Broadcast real-time new_message to conversation room
         io.to(`conversation_${conversationId}`).emit(
@@ -130,10 +228,6 @@ export const sendMessage = async (req, res) => {
         );
 
         console.log(`[BACKEND] NEW MESSAGE EMITTED`, messagePayload);
-        console.log("[BACKEND] CONVERSATION UPDATED", {
-            conversationId,
-            lastMessageId: message.id,
-        });
 
         // Broadcast to user rooms for sidebar updates
         const members = await db.orm.public.ConversationMember.where({
@@ -150,20 +244,6 @@ export const sendMessage = async (req, res) => {
                 (m) => m.senderId !== memberItem.userId && !m.isRead
             ).length;
 
-            console.log("[BACKEND] UNREAD COUNT", memberUnreadCount);
-            console.log("[BACKEND] UNREAD COUNT CALCULATED", {
-                conversationId,
-                userId: memberItem.userId,
-                unreadCount: memberUnreadCount,
-            });
-
-            console.log("[BACKEND] UNREAD COUNT UPDATED", {
-                conversationId,
-                userId: memberItem.userId,
-                unreadCount: memberUnreadCount,
-            });
-
-            // Emit to user room so sidebar updates in realtime even if viewing another conversation
             io.to(`user_${memberItem.userId}`).emit(
                 "new_message",
                 messagePayload
@@ -237,14 +317,14 @@ export const getMessages = async (req, res) => {
             });
         }
 
-        const allMessages =
-            await db.orm.public.Message.all();
+        const allMessages = await db.orm.public.Message.all();
+        const allUsers = await db.orm.public.User.all();
+
+        const messagesMap = new Map(allMessages.map((m) => [m.id, m]));
+        const usersMap = new Map(allUsers.map((u) => [u.id, u.name]));
 
         const filteredMessages = allMessages
-            .filter(
-                (msg) =>
-                    msg.conversationId === conversationId
-            )
+            .filter((msg) => msg.conversationId === conversationId)
             .sort(
                 (a, b) =>
                     new Date(a.createdAt).getTime() -
@@ -253,7 +333,7 @@ export const getMessages = async (req, res) => {
 
         const messages = filteredMessages
             .slice(skip, skip + limit)
-            .map(buildMessagePayload);
+            .map((msg) => buildMessagePayload(msg, messagesMap, usersMap));
 
         return res.status(200).json({
             success: true,
