@@ -205,6 +205,13 @@
                   "kind": "scalar"
                 }
               },
+              "editedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
               "id": {
                 "nullable": false,
                 "type": {
@@ -213,6 +220,13 @@
                 }
               },
               "isDelivered": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/bool@1",
+                  "kind": "scalar"
+                }
+              },
+              "isEdited": {
                 "nullable": false,
                 "type": {
                   "codecId": "pg/bool@1",
@@ -272,11 +286,17 @@
                 "createdAt": {
                   "column": "createdAt"
                 },
+                "editedAt": {
+                  "column": "editedAt"
+                },
                 "id": {
                   "column": "id"
                 },
                 "isDelivered": {
                   "column": "isDelivered"
+                },
+                "isEdited": {
+                  "column": "isEdited"
                 },
                 "isRead": {
                   "column": "isRead"
@@ -582,6 +602,11 @@
                   "nativeType": "timestamptz",
                   "nullable": false
                 },
+                "editedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
                 "id": {
                   "codecId": "pg/int4@1",
                   "default": {
@@ -592,6 +617,15 @@
                   "nullable": false
                 },
                 "isDelivered": {
+                  "codecId": "pg/bool@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": false
+                  },
+                  "nativeType": "bool",
+                  "nullable": false
+                },
+                "isEdited": {
                   "codecId": "pg/bool@1",
                   "default": {
                     "kind": "literal",
@@ -723,7 +757,7 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "092c645a5db2c102aa9b14b3f056e1ffeb154ac63312147e9d90d678af60bc06"
+    "storageHash": "78d581b7b14ce265067822789e29652720fcda6534288c89b87e3dd8c6f0ecd5"
   },
   "capabilities": {
     "postgres": {

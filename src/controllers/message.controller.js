@@ -51,6 +51,8 @@ function buildMessagePayload(message, replyToMessageMap = null, usersMap = null)
         attachmentSize: message.attachmentSize ?? null,
         replyToMessageId: message.replyToMessageId ?? null,
         replyToMessage: replyToMessagePayload,
+        isEdited: Boolean(message.isEdited),
+        editedAt: message.editedAt ?? null,
         createdAt: message.createdAt,
         updatedAt: message.updatedAt,
     };
@@ -431,26 +433,27 @@ export const updateMessage = async (req, res) => {
     try {
         const currentUserId = req.user.userId;
         const messageId = Number(req.params.messageId);
-        const { content } = req.body;
+        const rawContent =
+            typeof req.body?.content === "string" ? req.body.content : "";
+        const content = rawContent.trim();
 
-        if (!messageId) {
+        if (!messageId || Number.isNaN(messageId)) {
             return res.status(400).json({
                 success: false,
                 message: "messageId is required",
             });
         }
 
-        if (!content || !content.trim()) {
+        if (!content) {
             return res.status(400).json({
                 success: false,
-                message: "Message content is required",
+                message: "Message content cannot be empty",
             });
         }
 
-        const message =
-            await db.orm.public.Message.first({
-                id: messageId,
-            });
+        const message = await db.orm.public.Message.first({
+            id: messageId,
+        });
 
         if (!message) {
             return res.status(404).json({
@@ -462,30 +465,61 @@ export const updateMessage = async (req, res) => {
         if (message.senderId !== currentUserId) {
             return res.status(403).json({
                 success: false,
-                message:
-                    "You can update only your own message",
+                message: "You can update only your own message",
             });
         }
 
-        const updatedMessage =
-            await db.orm.public.Message
-                .where({ id: messageId })
-                .update({
-                    content: content.trim(),
-                });
+        const editedAt = new Date().toISOString();
 
-        io.to(
-            `conversation_${updatedMessage.conversationId}`
-        ).emit(
+        const updatedRaw = await db.orm.public.Message
+            .where({ id: messageId })
+            .update({
+                content: content,
+                isEdited: true,
+                editedAt: editedAt,
+            });
+
+        let replyToMessagePayload = null;
+        if (updatedRaw.replyToMessageId) {
+            const targetMsg = await db.orm.public.Message.first({
+                id: updatedRaw.replyToMessageId,
+            });
+            if (targetMsg) {
+                const targetSender = await db.orm.public.User.first({
+                    id: targetMsg.senderId,
+                });
+                replyToMessagePayload = {
+                    id: targetMsg.id,
+                    senderId: targetMsg.senderId,
+                    senderName: targetSender ? targetSender.name : "User",
+                    content: targetMsg.content ?? null,
+                    attachmentUrl: targetMsg.attachmentUrl ?? null,
+                    attachmentName: targetMsg.attachmentName ?? null,
+                    attachmentType: targetMsg.attachmentType ?? null,
+                };
+            }
+        }
+
+        const updatedMessage = {
+            ...updatedRaw,
+            replyToMessage: replyToMessagePayload,
+        };
+
+        const messagePayload = buildMessagePayload(updatedMessage);
+
+        io.to(`conversation_${updatedMessage.conversationId}`).emit(
             "message_updated",
             {
-                message: buildMessagePayload(updatedMessage),
+                message: messagePayload,
+                ...messagePayload,
             }
         );
 
+        console.log("[BACKEND] MESSAGE UPDATED & EMITTED:", messagePayload);
+
         return res.status(200).json({
             success: true,
-            message: buildMessagePayload(updatedMessage),
+            message: messagePayload,
         });
     } catch (error) {
         console.error("Update message error:", error);

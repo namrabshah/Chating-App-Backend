@@ -50,6 +50,8 @@ model Message {
   attachmentType   String?
   attachmentSize   Int?
   replyToMessageId Int?
+  isEdited         Boolean  @default(false)
+  editedAt         TimestamptzString?
   createdAt        TimestamptzString @default(now())
   updatedAt        TimestamptzString @default(now())
 }
