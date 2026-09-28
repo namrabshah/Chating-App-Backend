@@ -82,6 +82,12 @@ export const getMyConversations = async (req, res) => {
         const allMessages = await db.orm.public.Message.all();
         const allMembers = await db.orm.public.ConversationMember.all();
         const allUsers = await db.orm.public.User.all();
+        const deletedForUser = await db.orm.public.MessageDeletion.where({
+            userId: currentUserId,
+        }).all();
+        const deletedMessageIds = new Set(
+            deletedForUser.map((entry) => Number(entry.messageId))
+        );
 
         const conversations = [];
 
@@ -119,14 +125,17 @@ export const getMyConversations = async (req, res) => {
             const convMessages = allMessages.filter(
                 (msg) => msg.conversationId === conversation.id
             );
+            const visibleMessages = convMessages.filter(
+                (msg) => !deletedMessageIds.has(Number(msg.id))
+            );
 
             // Calculate unread count (senderId != currentUserId AND isRead = false)
-            const unreadCount = convMessages.filter(
-                (msg) => msg.senderId !== currentUserId && !msg.isRead
+            const unreadCount = visibleMessages.filter(
+                (msg) => msg.senderId !== currentUserId && !msg.isRead && !msg.isDeleted
             ).length;
 
             // Get last message
-            const sortedMessages = convMessages.sort(
+            const sortedMessages = [...visibleMessages].sort(
                 (a, b) =>
                     new Date(b.createdAt).getTime() -
                     new Date(a.createdAt).getTime()
@@ -136,17 +145,24 @@ export const getMyConversations = async (req, res) => {
                 sortedMessages.length > 0
                     ? {
                           id: sortedMessages[0].id,
-                          content: sortedMessages[0].content ?? null,
+                          content: sortedMessages[0].isDeleted
+                              ? "This message was deleted"
+                              : sortedMessages[0].content ?? null,
                           senderId: sortedMessages[0].senderId,
                           createdAt: sortedMessages[0].createdAt,
-                          attachmentUrl:
-                              sortedMessages[0].attachmentUrl ?? null,
-                          attachmentName:
-                              sortedMessages[0].attachmentName ?? null,
-                          attachmentType:
-                              sortedMessages[0].attachmentType ?? null,
-                          attachmentSize:
-                              sortedMessages[0].attachmentSize ?? null,
+                          attachmentUrl: sortedMessages[0].isDeleted
+                              ? null
+                              : sortedMessages[0].attachmentUrl ?? null,
+                          attachmentName: sortedMessages[0].isDeleted
+                              ? null
+                              : sortedMessages[0].attachmentName ?? null,
+                          attachmentType: sortedMessages[0].isDeleted
+                              ? null
+                              : sortedMessages[0].attachmentType ?? null,
+                          attachmentSize: sortedMessages[0].isDeleted
+                              ? null
+                              : sortedMessages[0].attachmentSize ?? null,
+                          isDeleted: Boolean(sortedMessages[0].isDeleted),
                       }
                     : null;
 

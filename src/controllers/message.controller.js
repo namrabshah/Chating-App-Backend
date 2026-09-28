@@ -2,7 +2,13 @@ import { db } from "../prisma/db.js";
 import { io } from "../../server.js";
 import { deleteUploadedFile } from "../middleware/upload.middleware.js";
 
-function buildMessagePayload(message, replyToMessageMap = null, usersMap = null) {
+function buildMessagePayload(
+    message,
+    replyToMessageMap = null,
+    usersMap = null,
+    currentUserId = null,
+    deletedForUserIds = null
+) {
     let replyToMessagePayload = null;
 
     if (message.replyToMessageId) {
@@ -11,14 +17,32 @@ function buildMessagePayload(message, replyToMessageMap = null, usersMap = null)
             const senderName = usersMap
                 ? usersMap.get(targetMsg.senderId) || "User"
                 : "User";
+            const targetHiddenForCurrentUser =
+                currentUserId != null &&
+                deletedForUserIds &&
+                deletedForUserIds.has(targetMsg.id);
+
             replyToMessagePayload = {
                 id: targetMsg.id,
                 senderId: targetMsg.senderId,
                 senderName: senderName,
-                content: targetMsg.content ?? null,
-                attachmentUrl: targetMsg.attachmentUrl ?? null,
-                attachmentName: targetMsg.attachmentName ?? null,
-                attachmentType: targetMsg.attachmentType ?? null,
+                content:
+                    targetHiddenForCurrentUser || targetMsg.isDeleted
+                        ? "Message deleted"
+                        : targetMsg.content ?? null,
+                attachmentUrl:
+                    targetHiddenForCurrentUser || targetMsg.isDeleted
+                        ? null
+                        : targetMsg.attachmentUrl ?? null,
+                attachmentName:
+                    targetHiddenForCurrentUser || targetMsg.isDeleted
+                        ? null
+                        : targetMsg.attachmentName ?? null,
+                attachmentType:
+                    targetHiddenForCurrentUser || targetMsg.isDeleted
+                        ? null
+                        : targetMsg.attachmentType ?? null,
+                isDeleted: Boolean(targetMsg.isDeleted),
             };
         } else if (
             typeof message.replyToMessage === "object" &&
@@ -34,21 +58,26 @@ function buildMessagePayload(message, replyToMessageMap = null, usersMap = null)
                 attachmentUrl: null,
                 attachmentName: null,
                 attachmentType: null,
+                isDeleted: true,
             };
         }
     }
+
+    const isDeleted = Boolean(message.isDeleted);
 
     return {
         id: message.id,
         conversationId: message.conversationId,
         senderId: message.senderId,
-        content: message.content ?? null,
+        content: isDeleted ? null : message.content ?? null,
+        isDeleted,
+        deletedAt: message.deletedAt ?? null,
         isDelivered: Boolean(message.isDelivered),
         isRead: Boolean(message.isRead),
-        attachmentUrl: message.attachmentUrl ?? null,
-        attachmentName: message.attachmentName ?? null,
-        attachmentType: message.attachmentType ?? null,
-        attachmentSize: message.attachmentSize ?? null,
+        attachmentUrl: isDeleted ? null : message.attachmentUrl ?? null,
+        attachmentName: isDeleted ? null : message.attachmentName ?? null,
+        attachmentType: isDeleted ? null : message.attachmentType ?? null,
+        attachmentSize: isDeleted ? null : message.attachmentSize ?? null,
         replyToMessageId: message.replyToMessageId ?? null,
         replyToMessage: replyToMessagePayload,
         isEdited: Boolean(message.isEdited),
@@ -59,6 +88,23 @@ function buildMessagePayload(message, replyToMessageMap = null, usersMap = null)
 }
 
 function buildLastMessagePreview(message) {
+    if (Boolean(message.isDeleted)) {
+        return {
+            id: message.id,
+            conversationId: message.conversationId,
+            senderId: message.senderId,
+            content: "This message was deleted",
+            attachmentUrl: null,
+            attachmentName: null,
+            attachmentType: null,
+            attachmentSize: null,
+            createdAt: message.createdAt,
+            isDeleted: true,
+            isDelivered: Boolean(message.isDelivered),
+            isRead: Boolean(message.isRead),
+        };
+    }
+
     return {
         id: message.id,
         conversationId: message.conversationId,
@@ -69,6 +115,7 @@ function buildLastMessagePreview(message) {
         attachmentType: message.attachmentType ?? null,
         attachmentSize: message.attachmentSize ?? null,
         createdAt: message.createdAt,
+        isDeleted: false,
         isDelivered: Boolean(message.isDelivered),
         isRead: Boolean(message.isRead),
     };
@@ -321,12 +368,22 @@ export const getMessages = async (req, res) => {
 
         const allMessages = await db.orm.public.Message.all();
         const allUsers = await db.orm.public.User.all();
+        const deletedForUser = await db.orm.public.MessageDeletion.where({
+            userId,
+        }).all();
+        const deletedIds = new Set(
+            deletedForUser.map((entry) => Number(entry.messageId))
+        );
 
         const messagesMap = new Map(allMessages.map((m) => [m.id, m]));
         const usersMap = new Map(allUsers.map((u) => [u.id, u.name]));
 
         const filteredMessages = allMessages
-            .filter((msg) => msg.conversationId === conversationId)
+            .filter(
+                (msg) =>
+                    msg.conversationId === conversationId &&
+                    !deletedIds.has(Number(msg.id))
+            )
             .sort(
                 (a, b) =>
                     new Date(a.createdAt).getTime() -
@@ -335,7 +392,15 @@ export const getMessages = async (req, res) => {
 
         const messages = filteredMessages
             .slice(skip, skip + limit)
-            .map((msg) => buildMessagePayload(msg, messagesMap, usersMap));
+            .map((msg) =>
+                buildMessagePayload(
+                    msg,
+                    messagesMap,
+                    usersMap,
+                    userId,
+                    deletedIds
+                )
+            );
 
         return res.status(200).json({
             success: true,
@@ -361,11 +426,19 @@ export const deleteMessage = async (req, res) => {
     try {
         const currentUserId = req.user.userId;
         const messageId = Number(req.params.messageId);
+        const deleteType = String(req.body?.deleteType || "me").toLowerCase();
 
         if (!messageId) {
             return res.status(400).json({
                 success: false,
                 message: "messageId is required",
+            });
+        }
+
+        if (!['me', 'everyone'].includes(deleteType)) {
+            return res.status(400).json({
+                success: false,
+                message: "deleteType must be 'me' or 'everyone'",
             });
         }
 
@@ -381,39 +454,68 @@ export const deleteMessage = async (req, res) => {
             });
         }
 
-        if (message.senderId !== currentUserId) {
+        const member = await db.orm.public.ConversationMember.first({
+            conversationId: message.conversationId,
+            userId: currentUserId,
+        });
+
+        if (!member) {
             return res.status(403).json({
                 success: false,
-                message:
-                    "You can delete only your own message",
+                message: "You are not a member of this conversation",
             });
         }
 
-        await db.orm.public.Message
-            .where({ id: messageId })
-            .delete();
+        if (deleteType === "me") {
+            const existingDeletion = await db.orm.public.MessageDeletion.first({
+                messageId: message.id,
+                userId: currentUserId,
+            });
 
-        if (message.attachmentUrl) {
-            const filename = message.attachmentUrl
-                .split("/")
-                .pop();
-            deleteUploadedFile(filename);
+            if (!existingDeletion) {
+                await db.orm.public.MessageDeletion.create({
+                    messageId: message.id,
+                    userId: currentUserId,
+                });
+            }
+
+            return res.status(200).json({
+                success: true,
+                deleteType: "me",
+                messageId: message.id,
+            });
         }
 
-        io.to(
-            `conversation_${message.conversationId}`
-        ).emit(
-            "message_deleted",
-            {
-                messageId: message.id,
-                conversationId:
-                    message.conversationId,
-            }
-        );
+        if (message.senderId !== currentUserId) {
+            return res.status(403).json({
+                success: false,
+                message: "Only the sender can delete for everyone",
+            });
+        }
+
+        const updatedMessage = await db.orm.public.Message.where({ id: messageId }).update({
+            isDeleted: true,
+            deletedAt: new Date().toISOString(),
+            deletedBy: currentUserId,
+            content: null,
+            attachmentUrl: null,
+            attachmentName: null,
+            attachmentType: null,
+            attachmentSize: null,
+        });
+
+        io.to(`conversation_${message.conversationId}`).emit("message_deleted", {
+            messageId: message.id,
+            conversationId: message.conversationId,
+            deletedBy: currentUserId,
+            deleteType: "everyone",
+            message: buildMessagePayload(updatedMessage),
+        });
 
         return res.status(200).json({
             success: true,
-            message: "Message deleted successfully",
+            deleteType: "everyone",
+            message: buildMessagePayload(updatedMessage),
         });
     } catch (error) {
         console.error("Delete message error:", error);
@@ -563,12 +665,20 @@ export const markConversationAsRead = async (req, res) => {
 
         const allMessages =
             await db.orm.public.Message.all();
+        const deletedForUser = await db.orm.public.MessageDeletion.where({
+            userId,
+        }).all();
+        const deletedIds = new Set(
+            deletedForUser.map((entry) => Number(entry.messageId))
+        );
 
         const unreadMessages = allMessages.filter(
             (msg) =>
                 msg.conversationId === conversationId &&
                 msg.senderId !== userId &&
-                !msg.isRead
+                !msg.isRead &&
+                !msg.isDeleted &&
+                !deletedIds.has(Number(msg.id))
         );
 
         for (const msg of unreadMessages) {
@@ -746,6 +856,12 @@ export const getUnreadMessages = async (req, res) => {
 
         const allMessages =
             await db.orm.public.Message.all();
+        const deletedForUser = await db.orm.public.MessageDeletion.where({
+            userId,
+        }).all();
+        const deletedIds = new Set(
+            deletedForUser.map((entry) => Number(entry.messageId))
+        );
 
         const unreadMessages =
             allMessages.filter(
@@ -753,7 +869,9 @@ export const getUnreadMessages = async (req, res) => {
                     message.conversationId ===
                         conversationId &&
                     message.isRead === false &&
-                    message.senderId !== userId
+                    message.senderId !== userId &&
+                    !message.isDeleted &&
+                    !deletedIds.has(Number(message.id))
             );
 
         return res.status(200).json({

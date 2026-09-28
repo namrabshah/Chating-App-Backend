@@ -12,6 +12,7 @@ model User {
   updatedAt TimestamptzString @default(now())
 
   conversationMembers ConversationMember[]
+  messageDeletions    MessageDeletion[]
 }
 
 model Conversation {
@@ -52,6 +53,23 @@ model Message {
   replyToMessageId Int?
   isEdited         Boolean  @default(false)
   editedAt         TimestamptzString?
+  isDeleted        Boolean  @default(false)
+  deletedAt        TimestamptzString?
+  deletedBy        Int?
   createdAt        TimestamptzString @default(now())
   updatedAt        TimestamptzString @default(now())
+
+  messageDeletions MessageDeletion[]
+}
+
+model MessageDeletion {
+  id        Int      @id @default(autoincrement())
+  messageId Int
+  userId    Int
+  createdAt TimestamptzString @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
 }
