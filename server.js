@@ -1,20 +1,23 @@
 import http from "http";
 import jwt from "jsonwebtoken";
 import { Server } from "socket.io";
-import app from "./src/app.js";
 import { db } from "./src/prisma/db.js";
 
 const PORT = 5000;
 
 const onlineUsers = new Map();
 
-const server = http.createServer(app);
+const server = http.createServer();
 
 export const io = new Server(server, {
     cors: {
         origin: "*",
     },
 });
+globalThis.__io = io;
+
+import app from "./src/app.js";
+server.on("request", app);
 
 // ========================================
 // HELPER: PROCESS PENDING DELIVERIES

@@ -13,6 +13,7 @@ model User {
 
   conversationMembers ConversationMember[]
   messageDeletions    MessageDeletion[]
+  reactions           MessageReaction[]
 }
 
 model Conversation {
@@ -60,6 +61,7 @@ model Message {
   updatedAt        TimestamptzString @default(now())
 
   messageDeletions MessageDeletion[]
+  reactions        MessageReaction[]
 }
 
 model MessageDeletion {
@@ -72,4 +74,28 @@ model MessageDeletion {
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([messageId, userId])
+}
+
+model MessageReaction {
+  id        Int      @id @default(autoincrement())
+  messageId Int
+  userId    Int
+  reaction  String
+  createdAt TimestamptzString @default(now())
+  updatedAt TimestamptzString @default(now())
+
+  message Message @relation(
+    fields: [messageId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  user User @relation(
+    fields: [userId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  @@unique([messageId, userId])
+  @@index([messageId])
 }

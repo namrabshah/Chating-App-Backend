@@ -20,6 +20,10 @@
       "model": "MessageDeletion",
       "namespace": "public"
     },
+    "messageReaction": {
+      "model": "MessageReaction",
+      "namespace": "public"
+    },
     "user": {
       "model": "User",
       "namespace": "public"
@@ -302,6 +306,21 @@
                   "model": "MessageDeletion",
                   "namespace": "public"
                 }
+              },
+              "reactions": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "messageId"
+                  ]
+                },
+                "to": {
+                  "model": "MessageReaction",
+                  "namespace": "public"
+                }
               }
             },
             "storage": {
@@ -447,6 +466,108 @@
               "table": "messageDeletion"
             }
           },
+          "MessageReaction": {
+            "fields": {
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "messageId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "reaction": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "updatedAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "userId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "message": {
+                "cardinality": "N:1",
+                "on": {
+                  "localFields": [
+                    "messageId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "Message",
+                  "namespace": "public"
+                }
+              },
+              "user": {
+                "cardinality": "N:1",
+                "on": {
+                  "localFields": [
+                    "userId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "messageId": {
+                  "column": "messageId"
+                },
+                "reaction": {
+                  "column": "reaction"
+                },
+                "updatedAt": {
+                  "column": "updatedAt"
+                },
+                "userId": {
+                  "column": "userId"
+                }
+              },
+              "namespaceId": "public",
+              "table": "messageReaction"
+            }
+          },
           "User": {
             "fields": {
               "avatar": {
@@ -541,6 +662,21 @@
                 },
                 "to": {
                   "model": "MessageDeletion",
+                  "namespace": "public"
+                }
+              },
+              "reactions": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "userId"
+                  ]
+                },
+                "to": {
+                  "model": "MessageReaction",
                   "namespace": "public"
                 }
               }
@@ -937,6 +1073,119 @@
                 }
               ]
             },
+            "messageReaction": {
+              "columns": {
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/int4@1",
+                  "default": {
+                    "expression": "autoincrement()",
+                    "kind": "function"
+                  },
+                  "nativeType": "int4",
+                  "nullable": false
+                },
+                "messageId": {
+                  "codecId": "pg/int4@1",
+                  "nativeType": "int4",
+                  "nullable": false
+                },
+                "reaction": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "updatedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "userId": {
+                  "codecId": "pg/int4@1",
+                  "nativeType": "int4",
+                  "nullable": false
+                }
+              },
+              "foreignKeys": [
+                {
+                  "onDelete": "cascade",
+                  "source": {
+                    "columns": [
+                      "messageId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "messageReaction"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "message"
+                  }
+                },
+                {
+                  "onDelete": "cascade",
+                  "source": {
+                    "columns": [
+                      "userId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "messageReaction"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "user"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "messageId"
+                  ],
+                  "name": "messageReaction_messageId_idx_3cdded8d",
+                  "prefix": "messageReaction_messageId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "userId"
+                  ],
+                  "name": "messageReaction_userId_idx_a489d58a",
+                  "prefix": "messageReaction_userId_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": [
+                {
+                  "columns": [
+                    "messageId",
+                    "userId"
+                  ]
+                }
+              ]
+            },
             "user": {
               "columns": {
                 "avatar": {
@@ -1022,7 +1271,7 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "941b15c2f526bc9dea70db0b58e056eed095a6845858ff917104a444d0e18e76"
+    "storageHash": "6ea92a1d24483d54e5572a9e856a22b1e28db20b0d82d9d26b3d0da35f14cde3"
   },
   "capabilities": {
     "postgres": {

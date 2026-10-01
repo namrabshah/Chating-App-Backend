@@ -1,13 +1,73 @@
 import { db } from "../prisma/db.js";
-import { io } from "../../server.js";
+const getIo = () => globalThis.__io;
 import { deleteUploadedFile } from "../middleware/upload.middleware.js";
+
+export const ALLOWED_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "😡"];
+
+export function isValidReaction(reaction) {
+    return typeof reaction === "string" && ALLOWED_REACTIONS.includes(reaction);
+}
+
+async function getAggregatedReactionsForMessage(messageId, currentUserId = null, usersMap = null) {
+    const rawReactions = await db.orm.public.MessageReaction.where({ messageId }).all();
+
+    if (!usersMap) {
+        const allUsers = await db.orm.public.User.all();
+        usersMap = new Map(allUsers.map((u) => [u.id, u.name]));
+    }
+
+    const groupedMap = new Map();
+    let myReaction = null;
+
+    for (const item of rawReactions) {
+        if (!groupedMap.has(item.reaction)) {
+            groupedMap.set(item.reaction, []);
+        }
+        groupedMap.get(item.reaction).push(item);
+
+        if (currentUserId != null && Number(item.userId) === Number(currentUserId)) {
+            myReaction = item.reaction;
+        }
+    }
+
+    const reactions = [];
+    for (const emoji of ALLOWED_REACTIONS) {
+        if (groupedMap.has(emoji)) {
+            const items = groupedMap.get(emoji);
+            reactions.push({
+                reaction: emoji,
+                count: items.length,
+                users: items.map((it) => ({
+                    id: it.userId,
+                    name: usersMap.get(it.userId) || "User",
+                })),
+            });
+        }
+    }
+
+    for (const [emoji, items] of groupedMap.entries()) {
+        if (!ALLOWED_REACTIONS.includes(emoji)) {
+            reactions.push({
+                reaction: emoji,
+                count: items.length,
+                users: items.map((it) => ({
+                    id: it.userId,
+                    name: usersMap.get(it.userId) || "User",
+                })),
+            });
+        }
+    }
+
+    return { reactions, myReaction };
+}
 
 function buildMessagePayload(
     message,
     replyToMessageMap = null,
     usersMap = null,
     currentUserId = null,
-    deletedForUserIds = null
+    deletedForUserIds = null,
+    messageReactionsMap = null
 ) {
     let replyToMessagePayload = null;
 
@@ -65,6 +125,57 @@ function buildMessagePayload(
 
     const isDeleted = Boolean(message.isDeleted);
 
+    let reactions = message.reactions || [];
+    let myReaction = message.myReaction ?? null;
+
+    if (!isDeleted && messageReactionsMap && messageReactionsMap.has(message.id)) {
+        const rawReactions = messageReactionsMap.get(message.id) || [];
+        const groupedMap = new Map();
+        myReaction = null;
+
+        for (const item of rawReactions) {
+            if (!groupedMap.has(item.reaction)) {
+                groupedMap.set(item.reaction, []);
+            }
+            groupedMap.get(item.reaction).push(item);
+
+            if (currentUserId != null && Number(item.userId) === Number(currentUserId)) {
+                myReaction = item.reaction;
+            }
+        }
+
+        reactions = [];
+        for (const emoji of ALLOWED_REACTIONS) {
+            if (groupedMap.has(emoji)) {
+                const items = groupedMap.get(emoji);
+                reactions.push({
+                    reaction: emoji,
+                    count: items.length,
+                    users: items.map((it) => ({
+                        id: it.userId,
+                        name: usersMap ? usersMap.get(it.userId) || "User" : "User",
+                    })),
+                });
+            }
+        }
+
+        for (const [emoji, items] of groupedMap.entries()) {
+            if (!ALLOWED_REACTIONS.includes(emoji)) {
+                reactions.push({
+                    reaction: emoji,
+                    count: items.length,
+                    users: items.map((it) => ({
+                        id: it.userId,
+                        name: usersMap ? usersMap.get(it.userId) || "User" : "User",
+                    })),
+                });
+            }
+        }
+    } else if (isDeleted) {
+        reactions = [];
+        myReaction = null;
+    }
+
     return {
         id: message.id,
         conversationId: message.conversationId,
@@ -82,6 +193,8 @@ function buildMessagePayload(
         replyToMessage: replyToMessagePayload,
         isEdited: Boolean(message.isEdited),
         editedAt: message.editedAt ?? null,
+        reactions,
+        myReaction,
         createdAt: message.createdAt,
         updatedAt: message.updatedAt,
     };
@@ -271,7 +384,7 @@ export const sendMessage = async (req, res) => {
         const messagePayload = buildMessagePayload(messageWithReply);
 
         // Broadcast real-time new_message to conversation room
-        io.to(`conversation_${conversationId}`).emit(
+        getIo()?.to(`conversation_${conversationId}`).emit(
             "new_message",
             messagePayload
         );
@@ -293,7 +406,7 @@ export const sendMessage = async (req, res) => {
                 (m) => m.senderId !== memberItem.userId && !m.isRead
             ).length;
 
-            io.to(`user_${memberItem.userId}`).emit(
+            getIo()?.to(`user_${memberItem.userId}`).emit(
                 "new_message",
                 messagePayload
             );
@@ -305,12 +418,12 @@ export const sendMessage = async (req, res) => {
                 updatedAt: message.createdAt,
             };
 
-            io.to(`user_${memberItem.userId}`).emit(
+            getIo()?.to(`user_${memberItem.userId}`).emit(
                 "conversation_updated",
                 conversationUpdatePayload
             );
 
-            io.to(`user_${memberItem.userId}`).emit("unread_count_updated", {
+            getIo()?.to(`user_${memberItem.userId}`).emit("unread_count_updated", {
                 conversationId,
                 userId: memberItem.userId,
                 unreadCount: memberUnreadCount,
@@ -368,6 +481,7 @@ export const getMessages = async (req, res) => {
 
         const allMessages = await db.orm.public.Message.all();
         const allUsers = await db.orm.public.User.all();
+        const allReactions = await db.orm.public.MessageReaction.all();
         const deletedForUser = await db.orm.public.MessageDeletion.where({
             userId,
         }).all();
@@ -377,6 +491,14 @@ export const getMessages = async (req, res) => {
 
         const messagesMap = new Map(allMessages.map((m) => [m.id, m]));
         const usersMap = new Map(allUsers.map((u) => [u.id, u.name]));
+
+        const messageReactionsMap = new Map();
+        for (const r of allReactions) {
+            if (!messageReactionsMap.has(r.messageId)) {
+                messageReactionsMap.set(r.messageId, []);
+            }
+            messageReactionsMap.get(r.messageId).push(r);
+        }
 
         const filteredMessages = allMessages
             .filter(
@@ -398,7 +520,8 @@ export const getMessages = async (req, res) => {
                     messagesMap,
                     usersMap,
                     userId,
-                    deletedIds
+                    deletedIds,
+                    messageReactionsMap
                 )
             );
 
@@ -504,7 +627,7 @@ export const deleteMessage = async (req, res) => {
             attachmentSize: null,
         });
 
-        io.to(`conversation_${message.conversationId}`).emit("message_deleted", {
+        getIo()?.to(`conversation_${message.conversationId}`).emit("message_deleted", {
             messageId: message.id,
             conversationId: message.conversationId,
             deletedBy: currentUserId,
@@ -602,14 +725,19 @@ export const updateMessage = async (req, res) => {
             }
         }
 
+        const { reactions: existingReactions, myReaction: existingMyReaction } =
+            await getAggregatedReactionsForMessage(messageId, currentUserId);
+
         const updatedMessage = {
             ...updatedRaw,
             replyToMessage: replyToMessagePayload,
+            reactions: existingReactions,
+            myReaction: existingMyReaction,
         };
 
         const messagePayload = buildMessagePayload(updatedMessage);
 
-        io.to(`conversation_${updatedMessage.conversationId}`).emit(
+        getIo()?.to(`conversation_${updatedMessage.conversationId}`).emit(
             "message_updated",
             {
                 message: messagePayload,
@@ -703,8 +831,8 @@ export const markConversationAsRead = async (req, res) => {
                 isRead: true,
             };
 
-            io.to(`user_${msg.senderId}`)
-                .to(`conversation_${msg.conversationId}`)
+            getIo()?.to(`user_${msg.senderId}`)
+                ?.to(`conversation_${msg.conversationId}`)
                 .emit("message_read_updated", readPayload);
 
             console.log("[BACKEND] READ UPDATE EMITTED TO SENDER", readPayload);
@@ -799,8 +927,8 @@ export const markMessageAsRead = async (req, res) => {
             isRead: true,
         };
 
-        io.to(`user_${message.senderId}`)
-            .to(`conversation_${message.conversationId}`)
+        getIo()?.to(`user_${message.senderId}`)
+            ?.to(`conversation_${message.conversationId}`)
             .emit("message_read_updated", readPayload);
 
         console.log("[BACKEND] READ UPDATE EMITTED TO SENDER", readPayload);
@@ -884,6 +1012,137 @@ export const getUnreadMessages = async (req, res) => {
             "Get unread messages error:",
             error
         );
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        });
+    }
+};
+
+// ========================================
+// TOGGLE MESSAGE REACTION
+// ========================================
+
+export const toggleMessageReaction = async (req, res) => {
+    try {
+        const currentUserId = req.user.userId;
+        const messageId = Number(req.params.messageId);
+        const { reaction } = req.body || {};
+
+        if (!messageId || Number.isNaN(messageId)) {
+            return res.status(400).json({
+                success: false,
+                message: "messageId is required",
+            });
+        }
+
+        if (!isValidReaction(reaction)) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid reaction. Allowed reactions: ${ALLOWED_REACTIONS.join(", ")}`,
+            });
+        }
+
+        const message = await db.orm.public.Message.first({
+            id: messageId,
+        });
+
+        if (!message) {
+            return res.status(404).json({
+                success: false,
+                message: "Message not found",
+            });
+        }
+
+        if (message.isDeleted) {
+            return res.status(400).json({
+                success: false,
+                message: "Cannot react to a deleted message",
+            });
+        }
+
+        const member = await db.orm.public.ConversationMember.first({
+            conversationId: message.conversationId,
+            userId: currentUserId,
+        });
+
+        if (!member) {
+            return res.status(403).json({
+                success: false,
+                message: "You are not a member of this conversation",
+            });
+        }
+
+        const existingReaction = await db.orm.public.MessageReaction.first({
+            messageId: message.id,
+            userId: currentUserId,
+        });
+
+        let action = "";
+        let finalReaction = null;
+
+        if (existingReaction) {
+            if (existingReaction.reaction === reaction) {
+                // Toggle off (remove)
+                await db.orm.public.MessageReaction.where({
+                    id: existingReaction.id,
+                }).delete();
+                action = "removed";
+                finalReaction = null;
+            } else {
+                // Change reaction
+                await db.orm.public.MessageReaction.where({
+                    id: existingReaction.id,
+                }).update({
+                    reaction: reaction,
+                    updatedAt: new Date().toISOString(),
+                });
+                action = "updated";
+                finalReaction = reaction;
+            }
+        } else {
+            // Add new reaction
+            await db.orm.public.MessageReaction.create({
+                messageId: message.id,
+                userId: currentUserId,
+                reaction: reaction,
+            });
+            action = "added";
+            finalReaction = reaction;
+        }
+
+        // Fetch updated reaction list for this message
+        const { reactions: updatedReactions, myReaction } =
+            await getAggregatedReactionsForMessage(message.id, currentUserId);
+
+        const reactionSocketPayload = {
+            messageId: message.id,
+            conversationId: message.conversationId,
+            reactions: updatedReactions,
+            userId: currentUserId,
+            reaction: finalReaction,
+            action,
+        };
+
+        // Realtime update via Socket.IO
+        getIo()?.to(`conversation_${message.conversationId}`).emit(
+            "message_reaction_updated",
+            reactionSocketPayload
+        );
+
+        console.log("[BACKEND] REACTION UPDATED & EMITTED:", reactionSocketPayload);
+
+        return res.status(200).json({
+            success: true,
+            action,
+            messageId: message.id,
+            reaction: finalReaction,
+            reactions: updatedReactions,
+            myReaction,
+        });
+    } catch (error) {
+        console.error("Toggle message reaction error:", error);
 
         return res.status(500).json({
             success: false,

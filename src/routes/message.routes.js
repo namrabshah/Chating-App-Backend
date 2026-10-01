@@ -7,6 +7,7 @@ import {
   markMessageAsRead,
   markConversationAsRead,
   getUnreadMessages,
+  toggleMessageReaction,
 } from "../controllers/message.controller.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
 import {
@@ -32,6 +33,7 @@ router.post(
   sendMessage
 );
 router.get("/:conversationId", authMiddleware, getMessages);
+router.put("/:messageId/reaction", authMiddleware, toggleMessageReaction);
 router.delete("/:messageId", authMiddleware, deleteMessage);
 router.patch("/:messageId", authMiddleware, updateMessage);
 router.patch("/:conversationId/read", authMiddleware, markConversationAsRead);
