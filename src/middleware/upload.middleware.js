@@ -141,6 +141,15 @@ export const upload = multer({
   },
 });
 
+export const uploadSingleAvatar = (req, res, next) => {
+  upload.single("avatar")(req, res, (err) => {
+    if (err) {
+      return handleUploadError(err, req, res, next);
+    }
+    return next();
+  });
+};
+
 export function deleteUploadedFile(filename) {
   if (!filename) return;
 

@@ -41,40 +41,53 @@ export const updateMyProfile = async (req, res) => {
   try {
     const userId = req.user.userId;
 
-    const { name, avatar } = req.body;
+    let { name, avatar } = req.body;
+    let newAvatar = undefined;
 
-    // At least one field required
-    if (name === undefined && avatar === undefined) {
-      return res.status(400).json({
-        success: false,
-        message: "Name or avatar is required",
-      });
+    // Check if an avatar file was uploaded via uploadSingleAvatar middleware
+    if (req.file) {
+      newAvatar = `/uploads/${req.file.filename}`;
+    } else if (avatar !== undefined) {
+      if (avatar !== null && typeof avatar !== "string") {
+        return res.status(400).json({
+          success: false,
+          message: "Avatar must be a string or null",
+        });
+      }
+      newAvatar = avatar;
     }
 
-    // Validate name
-    if (name !== undefined && typeof name !== "string") {
-      return res.status(400).json({
-        success: false,
-        message: "Name must be a string",
-      });
+    // Name validation if provided
+    let trimmedName = undefined;
+    if (name !== undefined) {
+      if (typeof name !== "string") {
+        return res.status(400).json({
+          success: false,
+          message: "Name must be a string",
+        });
+      }
+      trimmedName = name.trim();
+      if (!trimmedName || trimmedName.length < 2 || trimmedName.length > 50) {
+        return res.status(400).json({
+          success: false,
+          message: "Name must be between 2 and 50 characters",
+        });
+      }
     }
 
-    // Validate avatar
-    if (avatar !== undefined && avatar !== null && typeof avatar !== "string") {
+    if (trimmedName === undefined && newAvatar === undefined) {
       return res.status(400).json({
         success: false,
-        message: "Avatar must be a string or null",
+        message: "Name or avatar file is required to update profile",
       });
     }
 
     const updateData = {};
-
-    if (name !== undefined) {
-      updateData.name = name.trim();
+    if (trimmedName !== undefined) {
+      updateData.name = trimmedName;
     }
-
-    if (avatar !== undefined) {
-      updateData.avatar = avatar;
+    if (newAvatar !== undefined) {
+      updateData.avatar = newAvatar;
     }
 
     const updatedUser = await db.orm.public.User
