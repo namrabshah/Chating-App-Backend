@@ -454,9 +454,8 @@ export const getMessages = async (req, res) => {
         const userId = req.user.userId;
         const conversationId = Number(req.params.conversationId);
 
-        const page = Number(req.query.page) || 1;
-        const limit = Number(req.query.limit) || 50;
-        const skip = (page - 1) * limit;
+        const page = Math.max(1, Number(req.query.page) || 1);
+        const limit = Math.max(1, Number(req.query.limit) || 20);
 
         if (!conversationId) {
             return res.status(400).json({
@@ -512,23 +511,30 @@ export const getMessages = async (req, res) => {
                     new Date(b.createdAt).getTime()
             );
 
-        const messages = filteredMessages
-            .slice(skip, skip + limit)
-            .map((msg) =>
-                buildMessagePayload(
-                    msg,
-                    messagesMap,
-                    usersMap,
-                    userId,
-                    deletedIds,
-                    messageReactionsMap
-                )
-            );
+        const total = filteredMessages.length;
+        const startIndex = Math.max(0, total - page * limit);
+        const endIndex = Math.max(0, total - (page - 1) * limit);
+        const hasMore = startIndex > 0;
+
+        const slicedMessages = filteredMessages.slice(startIndex, endIndex);
+
+        const messages = slicedMessages.map((msg) =>
+            buildMessagePayload(
+                msg,
+                messagesMap,
+                usersMap,
+                userId,
+                deletedIds,
+                messageReactionsMap
+            )
+        );
 
         return res.status(200).json({
             success: true,
             page,
             limit,
+            total,
+            hasMore,
             messages,
         });
     } catch (error) {
