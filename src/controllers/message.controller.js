@@ -1150,3 +1150,108 @@ export const toggleMessageReaction = async (req, res) => {
         });
     }
 };
+
+
+export const searchMessages = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const conversationId = Number(req.params.conversationId);
+    const rawQuery = typeof req.query.q === "string" ? req.query.q : "";
+    const query = rawQuery.trim();
+
+    if (!conversationId || Number.isNaN(conversationId)) {
+      return res.status(400).json({
+        success: false,
+        message: "conversationId is required",
+      });
+    }
+
+    if (!query) {
+      return res.status(400).json({
+        success: false,
+        message: "Search query is required",
+      });
+    }
+
+    // Check conversation membership
+    const member = await db.orm.public.ConversationMember.first({
+      conversationId,
+      userId,
+    });
+
+    if (!member) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not a member of this conversation",
+      });
+    }
+
+    const allMessages = await db.orm.public.Message.all();
+    const allUsers = await db.orm.public.User.all();
+    const allReactions = await db.orm.public.MessageReaction.all();
+    const deletedForUser = await db.orm.public.MessageDeletion.where({
+      userId,
+    }).all();
+    const deletedIds = new Set(
+      deletedForUser.map((entry) => Number(entry.messageId))
+    );
+
+    const messagesMap = new Map(allMessages.map((m) => [m.id, m]));
+    const usersMap = new Map(allUsers.map((u) => [u.id, u.name]));
+
+    const messageReactionsMap = new Map();
+    for (const r of allReactions) {
+      if (!messageReactionsMap.has(r.messageId)) {
+        messageReactionsMap.set(r.messageId, []);
+      }
+      messageReactionsMap.get(r.messageId).push(r);
+    }
+
+    const lowerQuery = query.toLowerCase();
+
+    // Filter matching messages:
+    // 1. Must belong to conversation
+    // 2. Must not be globally deleted for everyone
+    // 3. Must not be deleted for the current user
+    // 4. Must have content containing search query (case-insensitive)
+    const matchedMessages = allMessages
+      .filter(
+        (msg) =>
+          Number(msg.conversationId) === conversationId &&
+          !Boolean(msg.isDeleted) &&
+          !deletedIds.has(Number(msg.id)) &&
+          typeof msg.content === "string" &&
+          msg.content.toLowerCase().includes(lowerQuery)
+      )
+      .sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() -
+          new Date(b.createdAt).getTime()
+      );
+
+    const formattedMessages = matchedMessages.map((msg) =>
+      buildMessagePayload(
+        msg,
+        messagesMap,
+        usersMap,
+        userId,
+        deletedIds,
+        messageReactionsMap
+      )
+    );
+
+    return res.status(200).json({
+      success: true,
+      query,
+      count: formattedMessages.length,
+      messages: formattedMessages,
+    });
+  } catch (error) {
+    console.error("Search messages error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};

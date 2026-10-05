@@ -2,6 +2,7 @@ import express from "express";
 import {
   sendMessage,
   getMessages,
+  searchMessages,
   deleteMessage,
   updateMessage,
   markMessageAsRead,
@@ -31,6 +32,11 @@ router.post(
   authMiddleware,
   uploadSingleFile,
   sendMessage
+);
+router.get(
+  "/:conversationId/search",
+  authMiddleware,
+  searchMessages
 );
 router.get("/:conversationId", authMiddleware, getMessages);
 router.put("/:messageId/reaction", authMiddleware, toggleMessageReaction);
