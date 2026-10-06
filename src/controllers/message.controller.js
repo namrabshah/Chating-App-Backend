@@ -315,6 +315,32 @@ export const sendMessage = async (req, res) => {
             });
         }
 
+        const allConvMembers = await db.orm.public.ConversationMember.where({
+            conversationId,
+        }).all();
+
+        const otherMember = allConvMembers.find((m) => m.userId !== senderId);
+
+        if (otherMember) {
+            const block1 = await db.orm.public.UserBlock.first({
+                blockerId: senderId,
+                blockedId: otherMember.userId,
+            });
+
+            const block2 = await db.orm.public.UserBlock.first({
+                blockerId: otherMember.userId,
+                blockedId: senderId,
+            });
+
+            if (block1 || block2) {
+                if (uploadedFilename) deleteUploadedFile(uploadedFilename);
+                return res.status(403).json({
+                    success: false,
+                    message: "You cannot send messages to this user",
+                });
+            }
+        }
+
         const createData = {
             conversationId,
             senderId,

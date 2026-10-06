@@ -170,3 +170,176 @@ export const searchUsers = async (req, res) => {
     });
   }
 };
+
+export const blockUser = async (req, res) => {
+  try {
+    const blockerId = req.user.userId;
+    const targetUserId = Number(req.params.userId);
+
+    if (!targetUserId || Number.isNaN(targetUserId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID",
+      });
+    }
+
+    if (blockerId === targetUserId) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot block yourself",
+      });
+    }
+
+    const targetUser = await db.orm.public.User.first({
+      id: targetUserId,
+    });
+
+    if (!targetUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const existingBlock = await db.orm.public.UserBlock.first({
+      blockerId,
+      blockedId: targetUserId,
+    });
+
+    if (existingBlock) {
+      return res.status(200).json({
+        success: true,
+        message: "User already blocked",
+      });
+    }
+
+    await db.orm.public.UserBlock.create({
+      blockerId,
+      blockedId: targetUserId,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "User blocked successfully",
+    });
+  } catch (error) {
+    console.error("Block user error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+export const unblockUser = async (req, res) => {
+  try {
+    const blockerId = req.user.userId;
+    const targetUserId = Number(req.params.userId);
+
+    if (!targetUserId || Number.isNaN(targetUserId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID",
+      });
+    }
+
+    const existingBlock = await db.orm.public.UserBlock.first({
+      blockerId,
+      blockedId: targetUserId,
+    });
+
+    if (existingBlock) {
+      await db.orm.public.UserBlock.where({
+        id: existingBlock.id,
+      }).delete();
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "User unblocked successfully",
+    });
+  } catch (error) {
+    console.error("Unblock user error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+export const getBlockStatus = async (req, res) => {
+  try {
+    const currentUserId = req.user.userId;
+    const targetUserId = Number(req.params.userId);
+
+    if (!targetUserId || Number.isNaN(targetUserId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID",
+      });
+    }
+
+    const block1 = await db.orm.public.UserBlock.first({
+      blockerId: currentUserId,
+      blockedId: targetUserId,
+    });
+
+    const block2 = await db.orm.public.UserBlock.first({
+      blockerId: targetUserId,
+      blockedId: currentUserId,
+    });
+
+    const blockedByUser = Boolean(block1);
+    const userBlockedMe = Boolean(block2);
+    const isBlocked = blockedByUser || userBlockedMe;
+
+    return res.status(200).json({
+      success: true,
+      isBlocked,
+      blockedByUser,
+      userBlockedMe,
+    });
+  } catch (error) {
+    console.error("Get block status error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+export const getBlockedUsers = async (req, res) => {
+  try {
+    const currentUserId = req.user.userId;
+
+    const blocks = await db.orm.public.UserBlock.where({
+      blockerId: currentUserId,
+    }).all();
+
+    const blockedIds = new Set(blocks.map((b) => Number(b.blockedId)));
+    const allUsers = await db.orm.public.User.all();
+
+    const users = allUsers
+      .filter((u) => blockedIds.has(Number(u.id)))
+      .map((u) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        avatar: u.avatar,
+        isOnline: Boolean(u.isOnline),
+        lastSeen: u.lastSeen,
+        createdAt: u.createdAt,
+      }));
+
+    return res.status(200).json({
+      success: true,
+      users,
+    });
+  } catch (error) {
+    console.error("Get blocked users error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};

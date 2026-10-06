@@ -27,6 +27,10 @@
     "user": {
       "model": "User",
       "namespace": "public"
+    },
+    "userBlock": {
+      "model": "UserBlock",
+      "namespace": "public"
     }
   },
   "domain": {
@@ -635,6 +639,36 @@
               }
             },
             "relations": {
+              "blockedBy": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "blockedId"
+                  ]
+                },
+                "to": {
+                  "model": "UserBlock",
+                  "namespace": "public"
+                }
+              },
+              "blockedUsers": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "blockerId"
+                  ]
+                },
+                "to": {
+                  "model": "UserBlock",
+                  "namespace": "public"
+                }
+              },
               "conversationMembers": {
                 "cardinality": "1:N",
                 "on": {
@@ -713,6 +747,88 @@
               },
               "namespaceId": "public",
               "table": "user"
+            }
+          },
+          "UserBlock": {
+            "fields": {
+              "blockedId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "blockerId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "blocked": {
+                "cardinality": "N:1",
+                "on": {
+                  "localFields": [
+                    "blockedId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              },
+              "blocker": {
+                "cardinality": "N:1",
+                "on": {
+                  "localFields": [
+                    "blockerId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "blockedId": {
+                  "column": "blockedId"
+                },
+                "blockerId": {
+                  "column": "blockerId"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "id": {
+                  "column": "id"
+                }
+              },
+              "namespaceId": "public",
+              "table": "userBlock"
             }
           }
         }
@@ -1264,6 +1380,105 @@
                   ]
                 }
               ]
+            },
+            "userBlock": {
+              "columns": {
+                "blockedId": {
+                  "codecId": "pg/int4@1",
+                  "nativeType": "int4",
+                  "nullable": false
+                },
+                "blockerId": {
+                  "codecId": "pg/int4@1",
+                  "nativeType": "int4",
+                  "nullable": false
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/int4@1",
+                  "default": {
+                    "expression": "autoincrement()",
+                    "kind": "function"
+                  },
+                  "nativeType": "int4",
+                  "nullable": false
+                }
+              },
+              "foreignKeys": [
+                {
+                  "onDelete": "cascade",
+                  "source": {
+                    "columns": [
+                      "blockerId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "userBlock"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "user"
+                  }
+                },
+                {
+                  "onDelete": "cascade",
+                  "source": {
+                    "columns": [
+                      "blockedId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "userBlock"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "user"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "blockedId"
+                  ],
+                  "name": "userBlock_blockedId_idx_e3047657",
+                  "prefix": "userBlock_blockedId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "blockerId"
+                  ],
+                  "name": "userBlock_blockerId_idx_a25bd35c",
+                  "prefix": "userBlock_blockerId_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": [
+                {
+                  "columns": [
+                    "blockerId",
+                    "blockedId"
+                  ]
+                }
+              ]
             }
           }
         },
@@ -1271,7 +1486,7 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "6ea92a1d24483d54e5572a9e856a22b1e28db20b0d82d9d26b3d0da35f14cde3"
+    "storageHash": "295f3cec0a86f25ceb37b6c3aa2c59e95bba4b188eeb7518bdb5a65f823762a1"
   },
   "capabilities": {
     "postgres": {

@@ -208,10 +208,40 @@ io.on("connection", async (socket) => {
     });
 
     // ========================================
+    // HELPER: CHECK BLOCK RELATIONSHIP IN CONVERSATION
+    // ========================================
+
+    async function checkBlockInConversation(convId, currentUserId) {
+        try {
+            const members = await db.orm.public.ConversationMember.where({
+                conversationId: convId,
+            }).all();
+
+            const otherMember = members.find((m) => m.userId !== currentUserId);
+            if (!otherMember) return false;
+
+            const block1 = await db.orm.public.UserBlock.first({
+                blockerId: currentUserId,
+                blockedId: otherMember.userId,
+            });
+
+            const block2 = await db.orm.public.UserBlock.first({
+                blockerId: otherMember.userId,
+                blockedId: currentUserId,
+            });
+
+            return Boolean(block1 || block2);
+        } catch (err) {
+            console.error("checkBlockInConversation error:", err);
+            return false;
+        }
+    }
+
+    // ========================================
     // TYPING
     // ========================================
 
-    socket.on("typing", (conversationId) => {
+    socket.on("typing", async (conversationId) => {
         const convId =
             typeof conversationId === "object"
                 ? Number(conversationId?.conversationId)
@@ -219,6 +249,9 @@ io.on("connection", async (socket) => {
 
         if (!convId || Number.isNaN(convId)) return;
         if (!socket.rooms.has(`conversation_${convId}`)) return;
+
+        const isBlocked = await checkBlockInConversation(convId, userId);
+        if (isBlocked) return;
 
         socket.to(`conversation_${convId}`).emit("user_typing", {
             userId,
@@ -230,7 +263,7 @@ io.on("connection", async (socket) => {
     // STOP TYPING
     // ========================================
 
-    socket.on("stop_typing", (conversationId) => {
+    socket.on("stop_typing", async (conversationId) => {
         const convId =
             typeof conversationId === "object"
                 ? Number(conversationId?.conversationId)
@@ -238,6 +271,9 @@ io.on("connection", async (socket) => {
 
         if (!convId || Number.isNaN(convId)) return;
         if (!socket.rooms.has(`conversation_${convId}`)) return;
+
+        const isBlocked = await checkBlockInConversation(convId, userId);
+        if (isBlocked) return;
 
         socket.to(`conversation_${convId}`).emit("user_stop_typing", {
             userId,
