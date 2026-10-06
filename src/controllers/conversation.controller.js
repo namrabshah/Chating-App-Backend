@@ -33,19 +33,61 @@ export const createConversation = async (req, res) => {
             });
         }
 
-        // Create conversation
-       const conversation = await db.orm.public.Conversation.create({});
+        // Check if 1-to-1 conversation already exists between currentUserId and targetUserId
+        const myMemberships = await db.orm.public.ConversationMember.where({
+            userId: currentUserId,
+        }).all();
+
+        const allMemberships = await db.orm.public.ConversationMember.all();
+
+        let existingConvId = null;
+        let myMemberRecord = null;
+
+        for (const myM of myMemberships) {
+            const otherM = allMemberships.find(
+                (m) => m.conversationId === myM.conversationId && m.userId === targetUserId
+            );
+            if (otherM) {
+                existingConvId = myM.conversationId;
+                myMemberRecord = myM;
+                break;
+            }
+        }
+
+        if (existingConvId && myMemberRecord) {
+            if (myMemberRecord.isDeleted) {
+                await db.orm.public.ConversationMember.where({
+                    id: myMemberRecord.id,
+                }).update({
+                    isDeleted: false,
+                    deletedAt: null,
+                });
+            }
+
+            return res.status(200).json({
+                success: true,
+                message: "Conversation retrieved successfully",
+                conversation: {
+                    id: existingConvId,
+                },
+            });
+        }
+
+        // Create new conversation
+        const conversation = await db.orm.public.Conversation.create({});
 
         // Add current user
         await db.orm.public.ConversationMember.create({
             conversationId: conversation.id,
             userId: currentUserId,
+            isDeleted: false,
         });
 
         // Add target user
         await db.orm.public.ConversationMember.create({
             conversationId: conversation.id,
             userId: targetUserId,
+            isDeleted: false,
         });
 
         return res.status(201).json({
@@ -71,13 +113,15 @@ export const getMyConversations = async (req, res) => {
 
         console.log("CONVERSATION LIST USER:", currentUserId);
 
-        // Get all conversations where current user is a member
+        // Get all conversations where current user is an active member (not deleted)
         const memberships =
             await db.orm.public.ConversationMember
                 .where({
                     userId: currentUserId,
                 })
                 .all();
+
+        const activeMemberships = memberships.filter((m) => !Boolean(m.isDeleted));
 
         const allMessages = await db.orm.public.Message.all();
         const allMembers = await db.orm.public.ConversationMember.all();
@@ -91,7 +135,7 @@ export const getMyConversations = async (req, res) => {
 
         const conversations = [];
 
-        for (const membership of memberships) {
+        for (const membership of activeMemberships) {
             const conversation =
                 await db.orm.public.Conversation.first({
                     id: membership.conversationId,
@@ -170,15 +214,6 @@ export const getMyConversations = async (req, res) => {
                 ? lastMessage.createdAt
                 : conversation.updatedAt;
 
-            console.log("CONVERSATION:", conversation.id);
-            console.log("UNREAD COUNT:", unreadCount);
-            console.log("LAST MESSAGE:", lastMessage);
-            console.log("[BACKEND] UNREAD COUNT CALCULATED", {
-                conversationId: conversation.id,
-                userId: currentUserId,
-                unreadCount,
-            });
-
             conversations.push({
                 id: conversation.id,
                 otherUser: {
@@ -229,17 +264,17 @@ export const getConversationDetails = async (req, res) => {
             });
         }
 
-        // Check whether current user is a member
+        // Check whether current user is an active member
         const membership =
             await db.orm.public.ConversationMember.first({
                 conversationId,
                 userId: currentUserId,
             });
 
-        if (!membership) {
-            return res.status(403).json({
+        if (!membership || Boolean(membership.isDeleted)) {
+            return res.status(404).json({
                 success: false,
-                message: "You are not a member of this conversation",
+                message: "Conversation not found",
             });
         }
 
@@ -350,6 +385,59 @@ export const getConversationDetails = async (req, res) => {
     } catch (error) {
         console.error("Get conversation details error:", error);
 
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        });
+    }
+};
+
+const getIo = () => globalThis.__io;
+
+export const deleteConversation = async (req, res) => {
+    try {
+        const currentUserId = req.user.userId;
+        const conversationId = Number(req.params.conversationId);
+
+        if (!conversationId || Number.isNaN(conversationId)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid conversationId",
+            });
+        }
+
+        const membership = await db.orm.public.ConversationMember.first({
+            conversationId,
+            userId: currentUserId,
+        });
+
+        if (!membership || Boolean(membership.isDeleted)) {
+            return res.status(404).json({
+                success: false,
+                message: "Conversation not found",
+            });
+        }
+
+        await db.orm.public.ConversationMember.where({
+            id: membership.id,
+        }).update({
+            isDeleted: true,
+            deletedAt: new Date().toISOString(),
+        });
+
+        console.log(`[BACKEND] CONVERSATION ${conversationId} DELETED FOR USER ${currentUserId}`);
+
+        // Emit conversation_deleted event ONLY to the current user's room
+        getIo()?.to(`user_${currentUserId}`).emit("conversation_deleted", {
+            conversationId,
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: "Conversation deleted successfully",
+        });
+    } catch (error) {
+        console.error("Delete conversation error:", error);
         return res.status(500).json({
             success: false,
             message: "Internal server error",

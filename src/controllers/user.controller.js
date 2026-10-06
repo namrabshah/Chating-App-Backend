@@ -127,6 +127,7 @@ export const updateMyProfile = async (req, res) => {
 };
 export const searchUsers = async (req, res) => {
   try {
+    const currentUserId = req.user.userId;
     const { q } = req.query;
 
     if (!q || q.trim().length < 2) {
@@ -136,30 +137,56 @@ export const searchUsers = async (req, res) => {
       });
     }
 
-    const users = await db.orm.public.User.all();
+    const allUsers = await db.orm.public.User.all();
+    const myMemberships = await db.orm.public.ConversationMember.where({
+      userId: currentUserId,
+    }).all();
+    const allMemberships = await db.orm.public.ConversationMember.all();
 
     const search = q.trim().toLowerCase();
 
-    const filteredUsers = users
-      .filter((user) => {
-        return (
-          user.name?.toLowerCase().includes(search) ||
-          user.email?.toLowerCase().includes(search)
+    const matchedUsers = allUsers
+      .filter(
+        (user) =>
+          user.id !== currentUserId &&
+          (user.name?.toLowerCase().includes(search) ||
+            user.email?.toLowerCase().includes(search))
+      )
+      .slice(0, 20);
+
+    const formattedUsers = matchedUsers.map((user) => {
+      let activeConvId = null;
+      let hasActiveConversation = false;
+
+      for (const myM of myMemberships) {
+        if (Boolean(myM.isDeleted)) continue;
+
+        const otherM = allMemberships.find(
+          (m) => m.conversationId === myM.conversationId && m.userId === user.id
         );
-      })
-      .slice(0, 20)
-      .map((user) => ({
+
+        if (otherM) {
+          activeConvId = myM.conversationId;
+          hasActiveConversation = true;
+          break;
+        }
+      }
+
+      return {
         id: user.id,
         name: user.name,
         email: user.email,
         avatar: user.avatar,
-        isOnline: user.isOnline,
+        isOnline: Boolean(user.isOnline),
         lastSeen: user.lastSeen,
-      }));
+        hasActiveConversation,
+        conversationId: activeConvId,
+      };
+    });
 
     return res.status(200).json({
       success: true,
-      users: filteredUsers,
+      users: formattedUsers,
     });
   } catch (error) {
     console.error("Search users error:", error);

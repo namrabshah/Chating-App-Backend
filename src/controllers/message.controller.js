@@ -341,6 +341,19 @@ export const sendMessage = async (req, res) => {
             }
         }
 
+        // Restore conversation visibility for any members who previously deleted/hidden the conversation
+        for (const m of allConvMembers) {
+            if (m.isDeleted) {
+                await db.orm.public.ConversationMember.where({
+                    id: m.id,
+                }).update({
+                    isDeleted: false,
+                    deletedAt: null,
+                });
+                console.log(`[BACKEND] RESTORED CONVERSATION ${conversationId} VISIBILITY FOR USER ${m.userId}`);
+            }
+        }
+
         const createData = {
             conversationId,
             senderId,
@@ -496,11 +509,10 @@ export const getMessages = async (req, res) => {
                 userId,
             });
 
-        if (!member) {
-            return res.status(403).json({
+        if (!member || Boolean(member.isDeleted)) {
+            return res.status(404).json({
                 success: false,
-                message:
-                    "You are not a member of this conversation",
+                message: "Conversation not found",
             });
         }
 
@@ -1211,10 +1223,10 @@ export const searchMessages = async (req, res) => {
       userId,
     });
 
-    if (!member) {
-      return res.status(403).json({
+    if (!member || Boolean(member.isDeleted)) {
+      return res.status(404).json({
         success: false,
-        message: "You are not a member of this conversation",
+        message: "Conversation not found",
       });
     }
 

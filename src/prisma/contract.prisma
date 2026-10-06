@@ -30,6 +30,8 @@ model ConversationMember {
   id             Int @id @default(autoincrement())
   conversationId Int
   userId         Int
+  isDeleted      Boolean @default(false)
+  deletedAt      TimestamptzString?
 
   conversation Conversation @relation(
     fields: [conversationId],
