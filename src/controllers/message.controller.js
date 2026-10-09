@@ -1,6 +1,7 @@
 import { db } from "../prisma/db.js";
 const getIo = () => globalThis.__io;
 import { deleteUploadedFile } from "../middleware/upload.middleware.js";
+import { createAndEmitNotification } from "../services/notification.service.js";
 
 export const ALLOWED_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "😡"];
 
@@ -74,9 +75,13 @@ function buildMessagePayload(
     if (message.replyToMessageId) {
         if (replyToMessageMap && replyToMessageMap.has(message.replyToMessageId)) {
             const targetMsg = replyToMessageMap.get(message.replyToMessageId);
-            const senderName = usersMap
-                ? usersMap.get(targetMsg.senderId) || "User"
+            const targetSender = usersMap
+                ? (typeof usersMap.get === "function" ? usersMap.get(targetMsg.senderId) : null)
+                : null;
+            const senderName = targetSender
+                ? (typeof targetSender === "object" ? targetSender.name : targetSender)
                 : "User";
+
             const targetHiddenForCurrentUser =
                 currentUserId != null &&
                 deletedForUserIds &&
@@ -151,10 +156,11 @@ function buildMessagePayload(
                 reactions.push({
                     reaction: emoji,
                     count: items.length,
-                    users: items.map((it) => ({
-                        id: it.userId,
-                        name: usersMap ? usersMap.get(it.userId) || "User" : "User",
-                    })),
+                    users: items.map((it) => {
+                        const u = usersMap ? usersMap.get(it.userId) : null;
+                        const name = u ? (typeof u === "object" ? u.name : u) : "User";
+                        return { id: it.userId, name };
+                    }),
                 });
             }
         }
@@ -164,10 +170,11 @@ function buildMessagePayload(
                 reactions.push({
                     reaction: emoji,
                     count: items.length,
-                    users: items.map((it) => ({
-                        id: it.userId,
-                        name: usersMap ? usersMap.get(it.userId) || "User" : "User",
-                    })),
+                    users: items.map((it) => {
+                        const u = usersMap ? usersMap.get(it.userId) : null;
+                        const name = u ? (typeof u === "object" ? u.name : u) : "User";
+                        return { id: it.userId, name };
+                    }),
                 });
             }
         }
@@ -176,10 +183,21 @@ function buildMessagePayload(
         myReaction = null;
     }
 
+    const senderObj = usersMap ? usersMap.get(message.senderId) : null;
+    const senderName = senderObj
+        ? (typeof senderObj === "object" ? senderObj.name : senderObj)
+        : message.senderName ?? null;
+    const senderAvatar = senderObj && typeof senderObj === "object"
+        ? senderObj.avatar
+        : message.senderAvatar ?? null;
+
     return {
         id: message.id,
         conversationId: message.conversationId,
         senderId: message.senderId,
+        senderName,
+        senderAvatar,
+        type: message.type || "TEXT",
         content: isDeleted ? null : message.content ?? null,
         isDeleted,
         deletedAt: message.deletedAt ?? null,
@@ -306,38 +324,42 @@ export const sendMessage = async (req, res) => {
                 userId: senderId,
             });
 
-        if (!member) {
+        if (!member || Boolean(member.isDeleted)) {
             if (uploadedFilename) deleteUploadedFile(uploadedFilename);
             return res.status(403).json({
                 success: false,
-                message:
-                    "You are not a member of this conversation",
+                message: "You are not a member of this conversation",
             });
         }
+
+        const conversation = await db.orm.public.Conversation.first({ id: conversationId });
 
         const allConvMembers = await db.orm.public.ConversationMember.where({
             conversationId,
         }).all();
 
-        const otherMember = allConvMembers.find((m) => m.userId !== senderId);
+        // Direct chat block check (skip for groups)
+        if (conversation && (conversation.type === "DIRECT" || !conversation.type)) {
+            const otherMember = allConvMembers.find((m) => m.userId !== senderId);
 
-        if (otherMember) {
-            const block1 = await db.orm.public.UserBlock.first({
-                blockerId: senderId,
-                blockedId: otherMember.userId,
-            });
-
-            const block2 = await db.orm.public.UserBlock.first({
-                blockerId: otherMember.userId,
-                blockedId: senderId,
-            });
-
-            if (block1 || block2) {
-                if (uploadedFilename) deleteUploadedFile(uploadedFilename);
-                return res.status(403).json({
-                    success: false,
-                    message: "You cannot send messages to this user",
+            if (otherMember) {
+                const block1 = await db.orm.public.UserBlock.first({
+                    blockerId: senderId,
+                    blockedId: otherMember.userId,
                 });
+
+                const block2 = await db.orm.public.UserBlock.first({
+                    blockerId: otherMember.userId,
+                    blockedId: senderId,
+                });
+
+                if (block1 || block2) {
+                    if (uploadedFilename) deleteUploadedFile(uploadedFilename);
+                    return res.status(403).json({
+                        success: false,
+                        message: "You cannot send messages to this user",
+                    });
+                }
             }
         }
 
@@ -469,6 +491,59 @@ export const sendMessage = async (req, res) => {
             });
         }
 
+        // Create and emit persistent notifications for active recipients
+        const senderUser = await db.orm.public.User.first({ id: senderId });
+        const senderName = senderUser ? senderUser.name : "User";
+        const msgText = message.content || (message.attachmentName ? `[File] ${message.attachmentName}` : "Sent a message");
+
+        const activeRecipients = members.filter(
+            (m) => m.userId !== senderId && !Boolean(m.isDeleted)
+        );
+
+        const allUsersForNotif = await db.orm.public.User.all();
+        const notifUsersMap = new Map(allUsersForNotif.map((u) => [u.id, u]));
+
+        const isGroupConv = conversation && conversation.type === "GROUP";
+
+        for (const recipientMember of activeRecipients) {
+            const recipientUser = notifUsersMap.get(recipientMember.userId);
+            let notifType = "MESSAGE";
+            let notifTitle = "";
+            let notifMsg = "";
+
+            if (isGroupConv) {
+                const groupName = conversation.name || "Group";
+                const isMentioned = recipientUser && message.content && (
+                    message.content.toLowerCase().includes(`@${recipientUser.name.toLowerCase()}`) ||
+                    message.content.toLowerCase().includes(`@${recipientUser.name.split(" ")[0].toLowerCase()}`)
+                );
+
+                if (isMentioned) {
+                    notifType = "MENTION";
+                    notifTitle = senderName;
+                    notifMsg = `You were mentioned in ${groupName}: "${msgText}"`;
+                } else {
+                    notifType = "MESSAGE";
+                    notifTitle = groupName;
+                    notifMsg = `${senderName}: ${msgText}`;
+                }
+            } else {
+                notifType = "MESSAGE";
+                notifTitle = senderName;
+                notifMsg = msgText;
+            }
+
+            await createAndEmitNotification({
+                userId: recipientMember.userId,
+                type: notifType,
+                title: notifTitle,
+                message: notifMsg,
+                conversationId,
+                messageId: message.id,
+                actorId: senderId,
+            });
+        }
+
         return res.status(201).json({
             success: true,
             message: messagePayload,
@@ -527,7 +602,7 @@ export const getMessages = async (req, res) => {
         );
 
         const messagesMap = new Map(allMessages.map((m) => [m.id, m]));
-        const usersMap = new Map(allUsers.map((u) => [u.id, u.name]));
+        const usersMap = new Map(allUsers.map((u) => [u.id, u]));
 
         const messageReactionsMap = new Map();
         for (const r of allReactions) {
@@ -1241,7 +1316,7 @@ export const searchMessages = async (req, res) => {
     );
 
     const messagesMap = new Map(allMessages.map((m) => [m.id, m]));
-    const usersMap = new Map(allUsers.map((u) => [u.id, u.name]));
+    const usersMap = new Map(allUsers.map((u) => [u.id, u]));
 
     const messageReactionsMap = new Map();
     for (const r of allReactions) {

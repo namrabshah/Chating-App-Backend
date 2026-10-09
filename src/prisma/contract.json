@@ -24,6 +24,10 @@
       "model": "MessageReaction",
       "namespace": "public"
     },
+    "notification": {
+      "model": "Notification",
+      "namespace": "public"
+    },
     "user": {
       "model": "User",
       "namespace": "public"
@@ -39,6 +43,13 @@
         "models": {
           "Conversation": {
             "fields": {
+              "avatar": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
               "createdAt": {
                 "nullable": false,
                 "type": {
@@ -46,10 +57,31 @@
                   "kind": "scalar"
                 }
               },
+              "createdBy": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
               "id": {
                 "nullable": false,
                 "type": {
                   "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "name": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "type": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
                   "kind": "scalar"
                 }
               },
@@ -80,11 +112,23 @@
             },
             "storage": {
               "fields": {
+                "avatar": {
+                  "column": "avatar"
+                },
                 "createdAt": {
                   "column": "createdAt"
                 },
+                "createdBy": {
+                  "column": "createdBy"
+                },
                 "id": {
                   "column": "id"
+                },
+                "name": {
+                  "column": "name"
+                },
+                "type": {
+                  "column": "type"
                 },
                 "updatedAt": {
                   "column": "updatedAt"
@@ -121,6 +165,20 @@
                 "nullable": false,
                 "type": {
                   "codecId": "pg/bool@1",
+                  "kind": "scalar"
+                }
+              },
+              "joinedAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "role": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
                   "kind": "scalar"
                 }
               },
@@ -177,6 +235,12 @@
                 },
                 "isDeleted": {
                   "column": "isDeleted"
+                },
+                "joinedAt": {
+                  "column": "joinedAt"
+                },
+                "role": {
+                  "column": "role"
                 },
                 "userId": {
                   "column": "userId"
@@ -307,6 +371,13 @@
                   "kind": "scalar"
                 }
               },
+              "type": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
               "updatedAt": {
                 "nullable": false,
                 "type": {
@@ -399,6 +470,9 @@
                 },
                 "senderId": {
                   "column": "senderId"
+                },
+                "type": {
+                  "column": "type"
                 },
                 "updatedAt": {
                   "column": "updatedAt"
@@ -592,6 +666,133 @@
               "table": "messageReaction"
             }
           },
+          "Notification": {
+            "fields": {
+              "actorId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "conversationId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "isRead": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/bool@1",
+                  "kind": "scalar"
+                }
+              },
+              "message": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "messageId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "title": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "type": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "userId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "user": {
+                "cardinality": "N:1",
+                "on": {
+                  "localFields": [
+                    "userId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "actorId": {
+                  "column": "actorId"
+                },
+                "conversationId": {
+                  "column": "conversationId"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "isRead": {
+                  "column": "isRead"
+                },
+                "message": {
+                  "column": "message"
+                },
+                "messageId": {
+                  "column": "messageId"
+                },
+                "title": {
+                  "column": "title"
+                },
+                "type": {
+                  "column": "type"
+                },
+                "userId": {
+                  "column": "userId"
+                }
+              },
+              "namespaceId": "public",
+              "table": "notification"
+            }
+          },
           "User": {
             "fields": {
               "avatar": {
@@ -716,6 +917,21 @@
                 },
                 "to": {
                   "model": "MessageDeletion",
+                  "namespace": "public"
+                }
+              },
+              "notifications": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "userId"
+                  ]
+                },
+                "to": {
+                  "model": "Notification",
                   "namespace": "public"
                 }
               },
@@ -862,6 +1078,11 @@
           "table": {
             "conversation": {
               "columns": {
+                "avatar": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
                 "createdAt": {
                   "codecId": "pg/timestamptz-string@1",
                   "default": {
@@ -871,6 +1092,11 @@
                   "nativeType": "timestamptz",
                   "nullable": false
                 },
+                "createdBy": {
+                  "codecId": "pg/int4@1",
+                  "nativeType": "int4",
+                  "nullable": true
+                },
                 "id": {
                   "codecId": "pg/int4@1",
                   "default": {
@@ -878,6 +1104,20 @@
                     "kind": "function"
                   },
                   "nativeType": "int4",
+                  "nullable": false
+                },
+                "name": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "type": {
+                  "codecId": "pg/text@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": "DIRECT"
+                  },
+                  "nativeType": "text",
                   "nullable": false
                 },
                 "updatedAt": {
@@ -927,6 +1167,24 @@
                     "value": false
                   },
                   "nativeType": "bool",
+                  "nullable": false
+                },
+                "joinedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "role": {
+                  "codecId": "pg/text@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": "MEMBER"
+                  },
+                  "nativeType": "text",
                   "nullable": false
                 },
                 "userId": {
@@ -1103,6 +1361,15 @@
                 "senderId": {
                   "codecId": "pg/int4@1",
                   "nativeType": "int4",
+                  "nullable": false
+                },
+                "type": {
+                  "codecId": "pg/text@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": "TEXT"
+                  },
+                  "nativeType": "text",
                   "nullable": false
                 },
                 "updatedAt": {
@@ -1336,6 +1603,111 @@
                 }
               ]
             },
+            "notification": {
+              "columns": {
+                "actorId": {
+                  "codecId": "pg/int4@1",
+                  "nativeType": "int4",
+                  "nullable": true
+                },
+                "conversationId": {
+                  "codecId": "pg/int4@1",
+                  "nativeType": "int4",
+                  "nullable": true
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/int4@1",
+                  "default": {
+                    "expression": "autoincrement()",
+                    "kind": "function"
+                  },
+                  "nativeType": "int4",
+                  "nullable": false
+                },
+                "isRead": {
+                  "codecId": "pg/bool@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": false
+                  },
+                  "nativeType": "bool",
+                  "nullable": false
+                },
+                "message": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "messageId": {
+                  "codecId": "pg/int4@1",
+                  "nativeType": "int4",
+                  "nullable": true
+                },
+                "title": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "type": {
+                  "codecId": "pg/text@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": "MESSAGE"
+                  },
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "userId": {
+                  "codecId": "pg/int4@1",
+                  "nativeType": "int4",
+                  "nullable": false
+                }
+              },
+              "foreignKeys": [
+                {
+                  "onDelete": "cascade",
+                  "source": {
+                    "columns": [
+                      "userId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "notification"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "user"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "userId"
+                  ],
+                  "name": "notification_userId_idx_a489d58a",
+                  "prefix": "notification_userId_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": []
+            },
             "user": {
               "columns": {
                 "avatar": {
@@ -1520,7 +1892,7 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "fef8f671b123fe758391963674878bb3d2fae2902a6bc8b229cd61422c60ce34"
+    "storageHash": "a58a7d510cfd24e4c27a0a5c880b60e4e790f17f4375fe5c416c61a8d1152c86"
   },
   "capabilities": {
     "postgres": {

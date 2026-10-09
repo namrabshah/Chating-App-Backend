@@ -4,6 +4,7 @@ import authRoutes from "./routes/auth.routes.js";
 import userRoutes from "./routes/user.routes.js";
 import conversationRoutes from "./routes/conversation.routes.js";
 import messageRoutes from "./routes/message.routes.js";
+import notificationRoutes from "./routes/notification.routes.js";
 import { UPLOADS_DIR } from "./middleware/upload.middleware.js";
 
 const app = express();
@@ -24,5 +25,6 @@ app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/conversations", conversationRoutes);
 app.use("/api/messages", messageRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 export default app;

@@ -158,14 +158,14 @@ io.on("connection", async (socket) => {
                 userId,
             });
 
-            if (!member) {
+            if (!member || Boolean(member.isDeleted)) {
                 console.log(
-                    `JOIN FAILED: User ${userId} is not member of ${conversationId}`
+                    `JOIN FAILED: User ${userId} is not an active member of ${conversationId}`
                 );
                 if (typeof callback === "function") {
                     callback({
                         success: false,
-                        message: "You are not a member of this conversation",
+                        message: "You are not an active member of this conversation",
                     });
                 }
                 return;
@@ -213,6 +213,9 @@ io.on("connection", async (socket) => {
 
     async function checkBlockInConversation(convId, currentUserId) {
         try {
+            const conv = await db.orm.public.Conversation.first({ id: convId });
+            if (conv && conv.type === "GROUP") return false;
+
             const members = await db.orm.public.ConversationMember.where({
                 conversationId: convId,
             }).all();

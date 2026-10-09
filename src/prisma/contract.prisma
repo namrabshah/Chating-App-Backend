@@ -16,10 +16,30 @@ model User {
   reactions           MessageReaction[]
   blockedUsers        UserBlock[] @relation("UserBlocker")
   blockedBy           UserBlock[] @relation("UserBlocked")
+  notifications       Notification[]
+}
+
+model Notification {
+  id             Int               @id @default(autoincrement())
+  userId         Int
+  type           String            @default("MESSAGE")
+  title          String
+  message        String
+  conversationId Int?
+  messageId      Int?
+  actorId        Int?
+  isRead         Boolean           @default(false)
+  createdAt      TimestamptzString @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Conversation {
   id        Int      @id @default(autoincrement())
+  type      String   @default("DIRECT")
+  name      String?
+  avatar    String?
+  createdBy Int?
   createdAt TimestamptzString @default(now())
   updatedAt TimestamptzString @default(now())
 
@@ -30,6 +50,8 @@ model ConversationMember {
   id             Int @id @default(autoincrement())
   conversationId Int
   userId         Int
+  role           String @default("MEMBER")
+  joinedAt       TimestamptzString @default(now())
   isDeleted      Boolean @default(false)
   deletedAt      TimestamptzString?
 
@@ -49,6 +71,7 @@ model Message {
   conversationId   Int
   senderId         Int
   content          String?
+  type             String   @default("TEXT")
   isRead           Boolean  @default(false)
   isDelivered      Boolean  @default(false)
   attachmentUrl    String?
